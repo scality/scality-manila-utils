@@ -65,6 +65,16 @@ class ExportTable(object):
             if not is_blank(line)
         )
 
+    def serialize(self):
+        """
+        Serialize the `ExportTable` to a string following /etc/exports format.
+
+        :returns: string representation of the exports
+        """
+        return '\n'.join(
+            export.serialize() for export in self.exports.values()
+        ) + '\n'
+
 
 class Export(object):
     """
@@ -131,3 +141,22 @@ class Export(object):
         export_point = export_parts[0]
         clients = dict(map(client_extract, export_parts[1:]))
         return cls(export_point, clients)
+
+    def serialize(self):
+        """
+        Serialize this `Export` to an /etc/exports representation.
+
+        :returns: a string in /etc/exports format
+        """
+        clients = ''
+        for host, options in self.clients.items():
+            clients += ' ' + host
+            if options:
+                clients += '({0:s})'.format(','.join(options))
+
+        # Attempt to align clients by padding with space up to col32
+        export_line = '{export_point:<32s} {clients:s}'.format(
+            export_point=self.export_point,
+            clients=clients,
+        )
+        return export_line
