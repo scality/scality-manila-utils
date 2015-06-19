@@ -36,6 +36,66 @@ class ExportTable(object):
             for export in exports
         )
 
+    def add_client(self, export_point, host, options=None):
+        """
+        Export a filesystem to a client.
+
+        The export is created if it does not exist.
+
+        :param export_point: filesystem (path) to export
+        :type export_point: string (unicode)
+        :param host: ip address, network or domain name
+        :type host: string (unicode)
+        :param options: sequence of nfs options (optional)
+        :type options: iterable of strings
+        """
+        if options is None:
+            export_options = frozenset()
+        else:
+            export_options = frozenset(options)
+
+        if export_point not in self.exports:
+            export = Export(export_point, {host: export_options})
+        else:
+            clients = self.exports[export_point].clients
+            if host in clients:
+                raise ExportException("Client '{0:s}' is already defined for "
+                                      "this export".format(host))
+            clients[host] = export_options
+            export = Export(export_point, clients)
+
+        self.exports[export_point] = export
+
+    def remove_client(self, export_point, host):
+        """
+        Remove access for a client to an export.
+
+        The filesystem is unexported if there are no clients left.
+
+        :param export_point: export to remove access from
+        :type export_point: string (unicode)
+        :param host: ip address, network or domain name for removal
+        :type host: string (unicode)
+        """
+        if export_point not in self.exports:
+            raise ExportException("No export point found for '{0:s}'".format(
+                                  export_point))
+
+        export = self.exports[export_point]
+        if host not in export.clients:
+            raise ExportException("'{0:s}' has no access defined for "
+                                  "'{1:s}'".format(export_point, host))
+
+        clients = export.clients
+        # If there are still clients after removal,
+        # replace the export with an updated version
+        if len(clients) > 1:
+            del clients[host]
+            self.exports[export_point] = Export(export_point, clients)
+        # Otherwise remove the export
+        else:
+            del self.exports[export_point]
+
     @classmethod
     def deserialize(cls, export_content):
         """

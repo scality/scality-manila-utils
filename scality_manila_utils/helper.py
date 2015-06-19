@@ -105,6 +105,15 @@ class Helper(object):
         :param options: sequence of nfs options
         :type options: iterable of strings (unicode)
         """
+        with utils.elevated_privileges():
+            with utils.nfs_mount(self.root_volume) as root:
+                if not os.path.exists(os.path.join(root, export_name)):
+                    raise ExportException("No export point found for "
+                                          "'{0:s}'".format(export_name))
+
+        export_point = os.path.join('/', export_name)
+        self.exports.add_client(export_point, host, options)
+        self._reexport()
 
     def revoke_access(self, export_name, host):
         """
@@ -115,6 +124,9 @@ class Helper(object):
         :param host: host to revoke access for
         :type host: string (unicode)
         """
+        export_point = os.path.join('/', export_name)
+        self.exports.remove_client(export_point, host)
+        self._reexport()
 
     def get_export(self, export_name):
         """
