@@ -19,7 +19,8 @@ import os.path
 
 from scality_manila_utils import utils
 from scality_manila_utils.export import ExportTable
-from scality_manila_utils.exceptions import EnvironmentException
+from scality_manila_utils.exceptions import (EnvironmentException,
+                                             ExportException)
 
 
 class Helper(object):
@@ -74,6 +75,16 @@ class Helper(object):
         :param export_name: name of export
         :type export_name: string (unicode)
         """
+        if not export_name or '/' in export_name:
+            raise ExportException('Invalid export name')
+
+        with utils.elevated_privileges():
+            with utils.nfs_mount(self.root_volume) as root:
+                export_point = os.path.join(root, export_name)
+
+                # Create export directory if it does not already exist
+                if not os.path.exists(export_point):
+                    os.mkdir(export_point, 0o777)
 
     def wipe_export(self, export_name):
         """
