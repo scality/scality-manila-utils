@@ -16,6 +16,7 @@
 import io
 import os
 import os.path
+import signal
 
 from scality_manila_utils import utils
 from scality_manila_utils.export import ExportTable
@@ -67,6 +68,14 @@ class Helper(object):
         """
         Export all defined filesystems.
         """
+        exports_data = self.exports.serialize()
+        sfused_pids = utils.find_pids('sfused')
+
+        with utils.elevated_privileges():
+            utils.safe_write(exports_data, self.exports_path)
+            for pid in sfused_pids:
+                log.debug('Killing sfused pid %d', pid)
+                os.kill(pid, signal.SIGHUP)
 
     def add_export(self, export_name):
         """
