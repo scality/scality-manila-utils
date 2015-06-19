@@ -20,3 +20,7 @@ class DeserializationException(ValueError):
 
 class ExportException(Exception):
     """Raised on errors pertaining to management of exports."""
+
+
+class EnvironmentException(Exception):
+    """Raised when required processes and binaries are not present."""

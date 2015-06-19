@@ -13,6 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
+import os
+import os.path
+
+from scality_manila_utils import utils
+from scality_manila_utils.export import ExportTable
+from scality_manila_utils.exceptions import EnvironmentException
+
 
 class Helper(object):
     """
@@ -28,11 +36,31 @@ class Helper(object):
         :param exports_path: path to nfs exports file
         :type exports_path: string (unicode)
         """
+        # Ring root volume export
+        self.root_volume = root_volume
+
+        if not os.path.exists(exports_path):
+            raise EnvironmentException('Unable to locate exports file')
+
+        # Path to nfs exports file
+        self.exports_path = exports_path
+
+        with io.open(self.exports_path, 'rt') as exports_file:
+            self.exports = ExportTable.deserialize(exports_file)
 
     def verify_environment(self):
         """
         Preliminary checks for installed binaries and running services.
+
+        :raises:
+            :py:class:`scality_manila_utils.exceptions.EnvironmentException`
+            if the environment is not ready
         """
+        env_path = os.getenv('PATH').split(':')
+        binaries = ('rpcbind', 'sfused')
+        for binary in binaries:
+            utils.binary_check(binary, env_path)
+            utils.process_check(binary)
 
     def _reexport(self):
         """
