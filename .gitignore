@@ -42,6 +42,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *,cover
+cover/
 
 # Translations
 *.mo
@@ -55,3 +56,7 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# Managed by PBR
+AUTHORS
+ChangeLog
