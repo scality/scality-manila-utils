@@ -24,6 +24,7 @@ import sys
 import unittest2 as unittest
 
 from scality_manila_utils.export import Export, ExportTable
+from scality_manila_utils.exceptions import DeserializationException
 
 
 class ExportStrategy(object):
@@ -174,3 +175,96 @@ class ExportStrategy(object):
         Strategy for generation of punctuation characters.
         """
         return sampled_from(('.', '_', '/', ',', '-'))
+
+
+# Certain tests are wrapped by an extra function to avoid name errors on
+# hypothesis imports that are unavailable on versions older than 2.7.
+class TestExportSerialization(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (2, 7),
+                     "Hypothesis supports python 2.7+")
+    def test_export_serialization(self):
+        @given(ExportStrategy.export())
+        def test(export):
+            re_deserialized = Export.deserialize(export.serialize())
+            self.assertEqual(export, re_deserialized)
+
+        test()
+
+    def test_export_deserialization_invalid(self):
+        invalid_lines = (
+            "  host(rw) host2(ro)",
+            "/filesystem (rw,ro)",
+            "/filesystem host(rw) (rw,ro)",
+            "/filesystem (rw,ro) host(ro)",
+            "/filesystem",
+        )
+        with self.assertRaises(DeserializationException):
+            for line in invalid_lines:
+                Export.deserialize(line)
+
+    def test_export_deserialization(self):
+        export_lines = (
+            '/filesystem 192.168.0.1',
+            '/filesystem 192.168.0.1 192.168.0.2',
+            '/filesystem 192.168.0.1 192.168.0.2(rw)',
+            '/filesystem 10.0.0.0/24(rw,sync) *.clients.internal(rw)',
+        )
+
+        expected_exports = (
+            Export('/filesystem', {'192.168.0.1': set()}),
+            Export('/filesystem', {'192.168.0.1': set(),
+                                   '192.168.0.2': set()}),
+            Export('/filesystem', {'192.168.0.1': set(),
+                                   '192.168.0.2': set(['rw'])}),
+            Export('/filesystem', {'10.0.0.0/24': set(['rw', 'sync']),
+                                   '*.clients.internal': set(['rw'])}),
+        )
+
+        for line, expected_export in zip(export_lines, expected_exports):
+            self.assertEqual(Export.deserialize(line), expected_export)
+
+
+class TestExportTable(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (2, 7),
+                     "Hypothesis supports python 2.7+")
+    def test_export_table_serialization(self):
+        @given(ExportStrategy.export_table(), settings=Settings(timeout=30))
+        def test(export_table):
+            export_lines = export_table.serialize().splitlines()
+            re_deserialized = ExportTable.deserialize(export_lines)
+            self.assertEqual(export_table, re_deserialized)
+
+        test()
+
+    def test_export_deserialization_with_comments(self):
+        expected_export_table = ExportTable([
+            Export('/p1', {
+                'hostname1': set(['rw', 'sync']),
+                'hostname2': set(['ro', 'sync']),
+                }
+            ),
+            Export('/p2', {
+                '10.0.0.0/24': set(['rw', 'fsid=0']),
+                '192.168.1.0/24': set(),
+                }
+            ),
+            Export('/p3', {'db.local': set(['rw', 'sync'])}),
+        ])
+
+        export_lines = [
+            '# /etc/exports - exports(5) directories exported to NFS clients',
+            '#',
+            '# Example for NFSv2 and NFSv3:',
+            '#  /srv/home        hostname1(rw,sync) hostname2(ro,sync)',
+            '# Example for NFSv4:',
+            '#  /srv/nfs4	    hostname1(rw,sync,fsid=0)',
+            '#  /srv/nfs4/home   hostname1(rw,sync,nohide)',
+            '',
+            '/p1     hostname1(rw,sync) hostname2(ro,sync) # workstations',
+            '/p2     10.0.0.0/24(rw,fsid=0) 192.168.1.0/24',
+            '  ## DATABASE ##',
+            '/p3     db.local(rw,sync)',
+        ]
+
+        export_table = ExportTable.deserialize(export_lines)
+        self.assertEqual(expected_export_table, export_table)
