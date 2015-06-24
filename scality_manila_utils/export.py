@@ -135,6 +135,20 @@ class ExportTable(object):
             export.serialize() for export in self.exports.values()
         ) + '\n'
 
+    def __eq__(self, other):
+        if not isinstance(other, ExportTable):
+            return NotImplemented
+
+        return self.exports == other.exports
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+
+        if isinstance(eq, bool):
+            return not eq
+        else:
+            return NotImplemented
+
 
 class Export(object):
     """
@@ -220,3 +234,18 @@ class Export(object):
             clients=clients,
         )
         return export_line
+
+    def __eq__(self, other):
+        if not isinstance(other, Export):
+            return NotImplemented
+
+        return (self.export_point == other.export_point and
+                self.clients == other.clients)
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+
+        if isinstance(eq, bool):
+            return not eq
+        else:
+            return NotImplemented
