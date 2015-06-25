@@ -24,7 +24,8 @@ import sys
 import unittest2 as unittest
 
 from scality_manila_utils.export import Export, ExportTable
-from scality_manila_utils.exceptions import DeserializationException
+from scality_manila_utils.exceptions import (DeserializationException,
+                                             ExportException)
 
 
 class ExportStrategy(object):
@@ -223,6 +224,20 @@ class TestExportSerialization(unittest.TestCase):
         for line, expected_export in zip(export_lines, expected_exports):
             self.assertEqual(Export.deserialize(line), expected_export)
 
+    def test_export_creation(self):
+        export_point = '/'
+        host = '192.168.0.0/24'
+        options = set(['rw', 'sync'])
+        clients = {host: options}
+
+        export = Export(export_point, clients)
+        self.assertEqual(export.export_point, export_point)
+        self.assertEqual(export.clients, clients)
+
+        # A filesystem can not be exported without any clients
+        with self.assertRaises(ExportException):
+            Export(export_point, {})
+
 
 class TestExportTable(unittest.TestCase):
     @unittest.skipIf(sys.version_info < (2, 7),
@@ -268,3 +283,72 @@ class TestExportTable(unittest.TestCase):
 
         export_table = ExportTable.deserialize(export_lines)
         self.assertEqual(expected_export_table, export_table)
+
+    def test_empty_after_add_and_remove(self):
+        export_point = '/data'
+        host = 'db.local'
+        options = set(['rw', 'sync'])
+
+        export_table = ExportTable([])
+        self.assertEqual(len(export_table.exports), 0)
+
+        export_table.add_client(export_point, host, options)
+        self.assertIn(export_point, export_table.exports)
+
+        export_table.remove_client(export_point, host)
+        self.assertEqual(len(export_table.exports), 0)
+
+    def test_add(self):
+        fs1 = '/data'
+        fs2 = '/scratch'
+        host1 = 'db.local'
+        host2 = '192.168.0.1/24'
+        options = set(['rw', 'sync'])
+
+        export_table = ExportTable([])
+        self.assertNotIn(fs1, export_table.exports)
+        self.assertNotIn(fs2, export_table.exports)
+
+        # Add export with options
+        export_table.add_client(fs1, host1, options)
+        self.assertIn(fs1, export_table.exports)
+        self.assertEqual(Export(fs1, {host1: options}),
+                         export_table.exports[fs1])
+
+        # Add export without options
+        export_table.add_client(fs2, host2)
+        self.assertIn(fs2, export_table.exports)
+        self.assertEqual(Export(fs2, {host2: set()}),
+                         export_table.exports[fs2])
+
+        with self.assertRaises(ExportException):
+            export_table.add_client(fs1, host1, options)
+            export_table.add_client(fs1, host1)
+            export_table.add_clinet(fs2, host2)
+            export_table.add_clinet(fs2, host2, options)
+
+        # Adding host2 as a client to fs1 should succeed
+        export_table.add_client(fs1, host2, options)
+
+    def test_remove(self):
+        export_point = '/data'
+        host = 'db.local'
+
+        export_table = ExportTable([])
+        self.assertNotIn(export_point, export_table.exports)
+
+        # Add an export
+        export_table.add_client(export_point, host)
+        self.assertIn(export_point, export_table.exports)
+
+        # Try removing a client for which the filesystem is not exported
+        with self.assertRaises(ExportException):
+            export_table.remove_client(export_point, '127.0.0.1')
+
+        # Remove the export
+        export_table.remove_client(export_point, host)
+        self.assertNotIn(export_point, export_table.exports)
+
+        # Removing it again should fail
+        with self.assertRaises(ExportException):
+            export_table.remove_client(export_point, host)
