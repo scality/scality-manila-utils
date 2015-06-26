@@ -149,6 +149,10 @@ class ExportTable(object):
         else:
             return NotImplemented
 
+    def __repr__(self):
+        exports = (repr(export) for export in self.exports.values())
+        return "ExportTable([{0:s}])".format(", ".join(exports))
+
 
 class Export(object):
     """
@@ -249,3 +253,8 @@ class Export(object):
             return not eq
         else:
             return NotImplemented
+
+    def __repr__(self):
+        return "Export(export_point='{0:s}', clients={1!s})".format(
+            self.export_point, self.clients
+        )
