@@ -35,6 +35,7 @@ def elevated_privileges():
     previous_uid = os.geteuid()
     previous_gid = os.getegid()
     # Become root
+    log.debug("Elevating privileges")
     os.seteuid(0)
     try:
         os.setegid(0)
@@ -47,6 +48,7 @@ def elevated_privileges():
 
     finally:
         # Drop root privileges
+        log.debug("Dropping elevated privileges")
         try:
             os.setegid(previous_gid)
         finally:
@@ -76,6 +78,7 @@ def find_pids(process):
             if e.errno != errno.ENOENT:
                 raise
 
+    log.debug("PIDs for '%s': %r", process, process_pids)
     return process_pids
 
 
@@ -94,6 +97,7 @@ def binary_check(binary, paths):
         if os.path.exists(os.path.join(path, binary)):
             return
 
+    log.error("No '%s' found in PATH (%s)", binary, ', '.join(paths))
     raise EnvironmentException("Unable to find '{0:s}', make sure it "
                                "is installed".format(binary))
 
@@ -109,6 +113,7 @@ def process_check(process):
     """
     process_pids = find_pids(process)
     if not process_pids:
+        log.error("'%s' is not running", process)
         raise EnvironmentException("Could not find '{0:s}' running, "
                                    "make sure it is "
                                    "started".format(process))
@@ -129,6 +134,7 @@ def safe_write(text, path, permissions=0o644):
     :type permissions: int (octal)
     """
     # Make sure that the temporary file lives on the same fs
+    log.debug("Writing '%s'", path)
     target_dir, _ = os.path.split(path)
     with tempfile.NamedTemporaryFile(mode='wt', dir=target_dir,
                                      delete=False) as f:
@@ -160,6 +166,7 @@ def nfs_mount(export_path):
     try:
         mount_point = tempfile.mkdtemp()
         subprocess.check_call(['mount', export_path, mount_point])
+        log.debug("Mounted nfs root '%s' at '%s'", export_path, mount_point)
     except (OSError, subprocess.CalledProcessError):
         log.exception('Unable to mount NFS root')
         raise
@@ -173,6 +180,9 @@ def nfs_mount(export_path):
         except subprocess.CalledProcessError:
             log.exception('Unable to umount NFS root')
             raise
+
+        log.debug('Unmounted nfs root')
+
         try:
             os.rmdir(mount_point)
         except OSError as e:

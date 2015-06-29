@@ -15,10 +15,29 @@
 
 import argparse
 import grp
+import logging
+import logging.handlers
 import os
 import pwd
 
 from scality_manila_utils.helper import Helper
+from scality_manila_utils.exceptions import EnvironmentException
+
+log = logging.getLogger(__name__)
+
+
+def setup_logger():
+    """
+    Setup root log handler.
+    """
+    log_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    handler = logging.handlers.SysLogHandler('/dev/log')
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(log_format)
+    logging.root.addHandler(handler)
+    logging.root.setLevel(logging.INFO)
 
 
 def drop_privileges():
@@ -47,30 +66,35 @@ def drop_privileges():
 
     # Drop privileges
     if user_info and group_info:
+        log.debug('Dropping privileges to %s:%s', user_info.pw_name,
+                  group_info.gr_name)
         previous_gid = os.getegid()
         os.setegid(group_info.gr_gid)
         try:
             os.seteuid(user_info.pw_uid)
         except Exception:
+            log.error("Unable to drop effective uid")
             # Attempt to restore effective gid
             try:
                 os.setegid(previous_gid)
             except OSError:
                 # Don't mask the previous exception
-                pass
+                log.exception("Unable to restore effective gid")
 
             raise
 
     else:
-        raise RuntimeError("Unable to find an unprivilged user/group")
+        msg = 'Unable to find an unprivileged user/group'
+        log.error(msg)
+        raise RuntimeError(msg)
 
 
 def main(args=None):
-    if os.getuid() != 0:
-        raise RuntimeError("This program requires superuser privileges")
+    setup_logger()
 
-    # Drop any elevated permissions
-    drop_privileges()
+    if os.getuid() != 0:
+        log.error('Invoked without superuser privileges')
+        raise RuntimeError("This program requires superuser privileges")
 
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument(
@@ -82,6 +106,12 @@ def main(args=None):
         '--root-export',
         help='NFS export path to the ring NFS root volume',
         default='127.0.0.1:/'
+    )
+    pre_parser.add_argument(
+        '--debug',
+        help='Set debug log level',
+        action='store_true',
+        default=False
     )
 
     command_parser = argparse.ArgumentParser(
@@ -142,10 +172,32 @@ def main(args=None):
 
     parsed_args = command_parser.parse_args(args)
 
-    helper = Helper(parsed_args.root_export, parsed_args.exports)
+    # Set debug level if requested
+    if parsed_args.debug:
+        logging.root.setLevel(logging.DEBUG)
+
+    # Drop any elevated permissions
+    drop_privileges()
+
+    # Setup exports helper
+    try:
+        helper = Helper(parsed_args.root_export, parsed_args.exports)
+    except EnvironmentException:
+        log.exception("Unable to setup")
+        raise
 
     command_args = dict(
         (k, v) for k, v in vars(parsed_args).items()
-        if k not in ('exports', 'root_export', 'func')
+        if k not in ('exports', 'root_export', 'func', 'debug')
     )
-    parsed_args.func(helper, **command_args)
+
+    formatted_args = ", ".join(
+        "{arg:s}={val!r}".format(arg=arg, val=val)
+        for arg, val in command_args.items()
+    )
+    log.info("Invoking %s(%s)", parsed_args.func.__name__, formatted_args)
+    try:
+        parsed_args.func(helper, **command_args)
+    except:
+        log.exception("Invocation failed")
+        raise

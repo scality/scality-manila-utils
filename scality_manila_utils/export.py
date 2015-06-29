@@ -13,10 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import re
 
 from scality_manila_utils.exceptions import (ExportException,
                                              DeserializationException)
+
+log = logging.getLogger(__name__)
 
 
 class ExportTable(object):
@@ -56,6 +59,7 @@ class ExportTable(object):
 
         if export_point not in self.exports:
             export = Export(export_point, {host: export_options})
+            log.debug("Export created: %r", export)
         else:
             clients = self.exports[export_point].clients
             if host in clients:
@@ -63,6 +67,7 @@ class ExportTable(object):
                                       "this export".format(host))
             clients[host] = export_options
             export = Export(export_point, clients)
+            log.debug("Export updated: %r", export)
 
         self.exports[export_point] = export
 
@@ -95,6 +100,8 @@ class ExportTable(object):
         # Otherwise remove the export
         else:
             del self.exports[export_point]
+
+        log.debug("'%s' revoked from export '%s'", host, export_point)
 
     @classmethod
     def deserialize(cls, export_content):
