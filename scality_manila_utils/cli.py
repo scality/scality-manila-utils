@@ -20,6 +20,8 @@ import logging.handlers
 import os
 import pwd
 
+import scality_manila_utils
+
 from scality_manila_utils.helper import Helper
 from scality_manila_utils.exceptions import EnvironmentException
 
@@ -112,6 +114,11 @@ def main(args=None):
         help='Set debug log level',
         action='store_true',
         default=False
+    )
+    pre_parser.add_argument(
+        '--version',
+        action='version',
+        version=scality_manila_utils.__version__
     )
 
     command_parser = argparse.ArgumentParser(
