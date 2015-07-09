@@ -24,3 +24,8 @@ class ExportException(Exception):
 
 class EnvironmentException(Exception):
     """Raised when required processes and binaries are not present."""
+
+
+class ExportNotFoundException(ExportException):
+    """Raised when an export is not found."""
+    EXIT_CODE = 10

@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import io
+import json
+import logging
 import os
 import os.path
 import signal
@@ -21,7 +23,10 @@ import signal
 from scality_manila_utils import utils
 from scality_manila_utils.export import ExportTable
 from scality_manila_utils.exceptions import (EnvironmentException,
-                                             ExportException)
+                                             ExportException,
+                                             ExportNotFoundException)
+
+log = logging.getLogger(__name__)
 
 
 class Helper(object):
@@ -143,4 +148,33 @@ class Helper(object):
 
         :param export_name: name of export
         :type export_name: string (unicode)
+        :returns: string with export client details in json format
         """
+        export_point = os.path.join('/', export_name)
+        if export_point in self.exports:
+            clients = dict(
+                (host, list(permissions)) for
+                host, permissions in
+                self.exports[export_point].clients.items()
+            )
+        elif export_name in self._get_exports():
+            # Export has been created, but without any access grants
+            clients = {}
+        else:
+            msg = "Export '{0:s}' not found".format(export_name)
+            raise exceptions.ExportNotFoundException(msg)
+
+        return json.dumps(clients)
+
+    def _get_exports(self):
+        """
+        Retrieve all created export points.
+
+        The returned exports include the ones without any access grants, and
+        thus has no entry in the exports configuration file.
+
+        :returns: list of strings
+        """
+        with utils.elevated_privileges():
+            with utils.nfs_mount(self.root_volume) as root:
+                return os.listdir(root)

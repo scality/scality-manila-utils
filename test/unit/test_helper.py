@@ -24,7 +24,8 @@ import mock
 
 from scality_manila_utils.helper import Helper
 from scality_manila_utils.exceptions import (EnvironmentException,
-                                             ExportException)
+                                             ExportException,
+                                             ExportNotFoundException)
 
 
 class TestHelper(unittest.TestCase):
@@ -226,3 +227,23 @@ class TestHelper(unittest.TestCase):
         # Assert that the added export has been written
         with io.open(self.exports_file) as f:
             self.assertEqual(f.read(), expected_exports)
+
+    def test_get_export(self):
+        export1 = 'export1'
+        export2 = 'export2'
+        host = 'host'
+
+        with self.assertRaises(ExportNotFoundException):
+            self.helper.get_export(export1)
+            self.helper.get_export(export2)
+
+        self.helper.add_export(export1)
+        self.assertEqual(self.helper.get_export(export1), '{}')
+
+        self.helper.add_export(export2)
+        self.assertEqual(self.helper.get_export(export2), '{}')
+
+        # Assert that the granted access is reflected in the next get
+        with mock.patch.object(Helper, '_reexport'):
+            self.helper.grant_access(export2, host, ['rw'])
+        self.assertEqual(self.helper.get_export(export2), '{"host": ["rw"]}')

@@ -32,6 +32,7 @@ class TestCli(unittest.TestCase):
             'grant_access.__name__': 'grant_access',
             'revoke_access.__name__': 'revoke_access',
             'verify_environment.__name__': 'verify_environment',
+            'get_export.__name__': 'get_export',
         }
         patcher = mock.patch('scality_manila_utils.cli.Helper', **attrs)
         self.addCleanup(patcher.stop)
@@ -94,6 +95,17 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(['create', export_name])
         self.helper.add_export.assert_called_once_with(
+            self.helper(),
+            export_name=export_name,
+        )
+
+    @mock.patch('scality_manila_utils.cli.drop_privileges')
+    @mock.patch('os.getuid', return_value=0)
+    def test_invoke_get(self, getuid, drop_privileges):
+        export_name = 'share'
+
+        scality_manila_utils.cli.main(['get', export_name])
+        self.helper.get_export.assert_called_once_with(
             self.helper(),
             export_name=export_name,
         )

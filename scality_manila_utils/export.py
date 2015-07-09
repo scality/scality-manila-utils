@@ -160,6 +160,12 @@ class ExportTable(object):
         exports = (repr(export) for export in self.exports.values())
         return "ExportTable([{0:s}])".format(", ".join(exports))
 
+    def __getitem__(self, key):
+        return self.exports[key]
+
+    def __contains__(self, item):
+        return item in self.exports
+
 
 class Export(object):
     """

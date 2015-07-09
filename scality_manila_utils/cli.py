@@ -172,10 +172,20 @@ def main(args=None):
         help='Check for required binaries and running services'
     )
 
+    parser_get = subparsers.add_parser(
+        'get',
+        help='List the addresses that a filesystem is exported to'
+    )
+    parser_get.add_argument(
+        'export_name',
+        help='Filesystem to get information about'
+    )
+
     parser_create.set_defaults(func=Helper.add_export)
     parser_grant.set_defaults(func=Helper.grant_access)
     parser_revoke.set_defaults(func=Helper.revoke_access)
     parser_check.set_defaults(func=Helper.verify_environment)
+    parser_get.set_defaults(func=Helper.get_export)
 
     parsed_args = command_parser.parse_args(args)
 
@@ -204,7 +214,9 @@ def main(args=None):
     )
     log.info("Invoking %s(%s)", parsed_args.func.__name__, formatted_args)
     try:
-        parsed_args.func(helper, **command_args)
+        result = parsed_args.func(helper, **command_args)
+        if result is not None:
+            print(result)
     except:
         log.exception("Invocation failed")
         raise
