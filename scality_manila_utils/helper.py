@@ -119,10 +119,8 @@ class Helper(object):
         :param options: sequence of nfs options
         :type options: iterable of strings (unicode)
         """
-        with utils.elevated_privileges():
-            with utils.nfs_mount(self.root_volume) as root:
-                if not os.path.exists(os.path.join(root, export_name)):
-                    raise ExportException("No export point found for "
+        if export_name not in self._get_exports():
+            raise ExportNotFoundException("No export point found for "
                                           "'{0:s}'".format(export_name))
 
         export_point = os.path.join('/', export_name)
@@ -161,8 +159,8 @@ class Helper(object):
             # Export has been created, but without any access grants
             clients = {}
         else:
-            msg = "Export '{0:s}' not found".format(export_name)
-            raise exceptions.ExportNotFoundException(msg)
+            raise ExportNotFoundException("Export '{0:s}' not found".format(
+                                          export_name))
 
         return json.dumps(clients)
 

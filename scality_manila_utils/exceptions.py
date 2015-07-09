@@ -29,3 +29,13 @@ class EnvironmentException(Exception):
 class ExportNotFoundException(ExportException):
     """Raised when an export is not found."""
     EXIT_CODE = 10
+
+
+class ClientExistsException(ExportException):
+    """Raised when a client is already granted access to an export."""
+    EXIT_CODE = 11
+
+
+class ClientNotFoundException(ExportException):
+    """Raised when a permission is not defined for an export."""
+    EXIT_CODE = 12

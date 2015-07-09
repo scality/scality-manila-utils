@@ -17,7 +17,10 @@ import logging
 import re
 
 from scality_manila_utils.exceptions import (ExportException,
-                                             DeserializationException)
+                                             DeserializationException,
+                                             ExportNotFoundException,
+                                             ClientExistsException,
+                                             ClientNotFoundException)
 
 log = logging.getLogger(__name__)
 
@@ -63,8 +66,8 @@ class ExportTable(object):
         else:
             clients = self.exports[export_point].clients
             if host in clients:
-                raise ExportException("Client '{0:s}' is already defined for "
-                                      "this export".format(host))
+                raise ClientExistsException("Client '{0:s}' is already "
+                                            "defined".format(host))
             clients[host] = export_options
             export = Export(export_point, clients)
             log.debug("Export updated: %r", export)
@@ -83,13 +86,14 @@ class ExportTable(object):
         :type host: string (unicode)
         """
         if export_point not in self.exports:
-            raise ExportException("No export point found for '{0:s}'".format(
-                                  export_point))
+            raise ExportNotFoundException("No export point found for "
+                                          "'{0:s}'".format(export_point))
 
         export = self.exports[export_point]
         if host not in export.clients:
-            raise ExportException("'{0:s}' has no access defined for "
-                                  "'{1:s}'".format(export_point, host))
+            raise ClientNotFoundException("'{0:s}' has no access defined "
+                                              "for '{1:s}'".format(
+                                              export_point, host))
 
         clients = export.clients
         # If there are still clients after removal,
