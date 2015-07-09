@@ -19,6 +19,8 @@ import logging
 import logging.handlers
 import os
 import pwd
+import sys
+import traceback
 
 import scality_manila_utils
 
@@ -217,6 +219,8 @@ def main(args=None):
         result = parsed_args.func(helper, **command_args)
         if result is not None:
             print(result)
-    except:
+    except Exception as e:
         log.exception("Invocation failed")
-        raise
+        traceback.print_exc()
+        exit_code = getattr(e, 'EXIT_CODE', 1)
+        sys.exit(exit_code)

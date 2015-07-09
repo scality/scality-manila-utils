@@ -91,9 +91,8 @@ class ExportTable(object):
 
         export = self.exports[export_point]
         if host not in export.clients:
-            raise ClientNotFoundException("'{0:s}' has no access defined "
-                                              "for '{1:s}'".format(
-                                              export_point, host))
+            raise ClientNotFoundException("'{0:s}' has no access defined for "
+                                          "'{1:s}'".format(export_point, host))
 
         clients = export.clients
         # If there are still clients after removal,
