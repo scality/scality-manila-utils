@@ -107,6 +107,7 @@ class Helper(object):
         :param export_name: name of export to remove
         :type export_name: string (unicode)
         """
+        raise NotImplementedError
 
     def grant_access(self, export_name, host, options):
         """
