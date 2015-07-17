@@ -98,7 +98,8 @@ class Helper(object):
 
                 # Create export directory if it does not already exist
                 if not os.path.exists(export_point):
-                    os.mkdir(export_point, 0o777)
+                    os.mkdir(export_point)
+                    os.chmod(export_point, 0o0777)
 
     def wipe_export(self, export_name):
         """
