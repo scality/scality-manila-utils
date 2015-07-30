@@ -35,7 +35,7 @@ def setup_logger():
     Setup root log handler.
     """
     log_format = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        '%(name)s - %(levelname)s - %(message)s'
     )
     handler = logging.handlers.SysLogHandler('/dev/log')
     handler.setLevel(logging.DEBUG)
