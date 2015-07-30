@@ -64,7 +64,7 @@ def find_pids(process):
     :returns: list of pids
     """
     process_pids = []
-    pids = filter(lambda f: f.isdigit(), os.listdir('/proc'))
+    pids = [f for f in os.listdir('/proc') if f.isdigit()]
     for pid in pids:
         status_path = os.path.join('/proc', pid, 'status')
         try:
