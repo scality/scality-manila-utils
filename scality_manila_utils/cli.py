@@ -125,7 +125,8 @@ def main(args=None):
 
     command_parser = argparse.ArgumentParser(
         parents=[pre_parser],
-        description='Manila exports management'
+        description='Manila exports management',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     subparsers = command_parser.add_subparsers(help='sub-command help')
 
@@ -224,3 +225,6 @@ def main(args=None):
         traceback.print_exc()
         exit_code = getattr(e, 'EXIT_CODE', 1)
         sys.exit(exit_code)
+
+if __name__ == '__main__':
+    main()
