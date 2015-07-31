@@ -22,7 +22,8 @@ import unittest2 as unittest
 
 import mock
 
-from scality_manila_utils.helper import Helper
+from scality_manila_utils import helper
+from scality_manila_utils.export import ExportTable, Export
 from scality_manila_utils.exceptions import (EnvironmentException,
                                              ExportException,
                                              ExportNotFoundException)
@@ -33,8 +34,8 @@ class TestHelper(unittest.TestCase):
         f = tempfile.NamedTemporaryFile(delete=False)
         f.close()
         self.exports_file = f.name
+
         self.root_export = '127.0.0.1:/'
-        self.helper = Helper(self.root_export, self.exports_file)
         self.nfs_root = tempfile.mkdtemp()
 
         attrs = {'return_value.__enter__.return_value': self.nfs_root}
@@ -53,16 +54,11 @@ class TestHelper(unittest.TestCase):
         os.unlink(self.exports_file)
         shutil.rmtree(self.nfs_root)
 
-    def test_helper_instantiation(self):
-        with mock.patch('os.path.exists', return_value=False):
-            with self.assertRaises(EnvironmentException):
-                Helper("127.0.0.1:/", "/no/exports")
-
     def test_verify_environment(self):
         with mock.patch('scality_manila_utils.utils.binary_check') as bc:
             with mock.patch('scality_manila_utils.utils.process_check') as pc:
                 with mock.patch('os.getenv', return_value='/a:/b'):
-                    self.helper.verify_environment()
+                    helper.verify_environment(self.exports_file)
                     bc.has_calls((
                         mock.call('rpcbind', ['/a', '/b']),
                         mock.call('sfused', ['/a', '/b']),
@@ -72,102 +68,160 @@ class TestHelper(unittest.TestCase):
                         mock.call('sfused'),
                     ))
 
-        with mock.patch('os.getenv', return_value='/foo:/bar'):
+        with mock.patch('os.path.exists', return_value=False) as exists:
             with self.assertRaises(EnvironmentException):
-                self.helper.verify_environment()
+                exports_file = '/no/exports'
+                helper.verify_environment(exports_file)
+                exists.assert_called_once_with(exports_file)
 
-    def test_add_export_invalid(self):
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    def test_add_export_invalid(self, verify_environment):
         # Invalid share name checks
         with self.assertRaises(ExportException):
-            self.helper.add_export('../directory/outside/share/root')
-            self.helper.add_export('directory/in/another/share')
-            self.helper.add_export('')
+            helper.add_export(self.root_export,
+                              '../directory/outside/share/root',
+                              exports_file=self.exports_file)
+            helper.add_export(self.root_export, 'directory/in/another/share',
+                              exports_file=self.exports_file)
+            helper.add_export(self.root_export, '',
+                              exports_file=self.exports_file)
 
-    def test_add_export(self):
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    def test_add_export(self, verify_environment):
         export_name = 'test'
         absolute_export_path = os.path.join(self.nfs_root, export_name)
         self.assertFalse(os.path.exists(absolute_export_path))
 
-        self.helper.add_export(export_name)
+        helper.add_export(self.root_export, export_name,
+                          exports_file=self.exports_file)
         self.assertTrue(os.path.exists(absolute_export_path))
+
+        # Check that `ensure_environment` decorator is called
+        verify_environment.assert_called_once_with(
+            self.root_export,
+            export_name,
+            exports_file=self.exports_file
+        )
+
         self.elevated_privileges_mock.assert_called_once_with()
         self.nfs_mount_mock.assert_called_once_with(self.root_export)
 
-        # Assert that no permissions were created for the new share
-        self.assertEqual(len(self.helper.exports.exports), 0)
-
-    @mock.patch.object(Helper, '_reexport')
-    def test_grant_access_invalid(self, reexport):
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    @mock.patch('scality_manila_utils.helper._reexport')
+    def test_grant_access_invalid(self, reexport, verify_environment):
         export_name = 'grant_twice'
+        export_point = os.path.join('/', export_name)
         host = 'hostname'
-        self.helper.add_export(export_name)
-        self.helper.grant_access(export_name, host, [])
+        exports = ExportTable([])
+
+        helper.add_export(self.root_export, export_name,
+                          exports_file=self.exports_file)
+        verify_environment.reset_mock()
+
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=exports):
+            helper.grant_access(self.root_export, self.exports_file,
+                                export_name, host, [])
+
+            reexport.assert_called_once_with(
+                self.exports_file,
+                ExportTable([
+                    Export(
+                        export_point=export_point,
+                        clients={host: frozenset([])}
+                    )
+                ])
+            )
 
         with self.assertRaises(ExportException):
-            self.helper.grant_access('unadded_share', host, None)
+            helper.grant_access(self.root_export, self.exports_file,
+                                'unadded_share', host, None)
 
             # Attempt granting access to the same export for a client twice
-            self.helper.grant_access(export_name, host, ['rw'])
+            self.helper.grant_access(self.root_export, self.exports_file,
+                                     export_name, host, ['rw'])
 
-    @mock.patch.object(Helper, '_reexport')
-    def test_grant_access(self, reexport):
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    @mock.patch('scality_manila_utils.helper._reexport')
+    def test_grant_access(self, reexport, verify_environment):
         export_name = 'test'
+        export_point = os.path.join('/', export_name)
         host = 'hostname'
-        options = set(['rw'])
+        options = frozenset(['rw'])
+        expected_exports = ExportTable([
+            Export(
+                export_point=export_point,
+                clients={host: options}
+            )
+        ])
 
         # Add an export
-        self.helper.add_export(export_name)
+        helper.add_export(self.root_export, export_name,
+                          exports_file=self.exports_file)
+
         self.nfs_mount_mock.reset_mock()
-        self.elevated_privileges_mock.reset_mock()
+        verify_environment.reset_mock()
 
         # Grant access to it
-        self.helper.grant_access(export_name, host, options)
+        helper.grant_access(self.root_export, self.exports_file,
+                            export_name, host, options)
+
+        # Check that `ensure_environment decorator` is called
+        verify_environment.assert_called_once_with(self.root_export,
+                                                   self.exports_file,
+                                                   export_name, host, options)
+
         self.nfs_mount_mock.assert_called_once_with(self.root_export)
-        self.elevated_privileges_mock.assert_called_once_with()
-        reexport.assert_called_once_with()
+        reexport.assert_called_once_with(self.exports_file, expected_exports)
 
         self.nfs_mount_mock.reset_mock()
-        self.elevated_privileges_mock.reset_mock()
         reexport.reset_mock()
-
-        exports = self.helper.exports.exports
-        export_point = os.path.join('/', export_name)
-        self.assertIn(export_point, exports)
-        self.assertIn(host, exports[export_point].clients)
-        self.assertEqual(exports[export_point].clients[host], options)
 
         # Grant access to another client on the previously added export
-        host = '10.0.0.0/16'
-        self.helper.grant_access(export_name, host, None)
-        self.nfs_mount_mock.assert_called_once_with(self.root_export)
-        self.elevated_privileges_mock.assert_called_once_with()
-        reexport.assert_called_once_with()
-        self.assertIn(host, exports[export_point].clients)
-        self.assertEqual(exports[export_point].clients[host], set())
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=expected_exports):
+            host2 = '10.0.0.0/16'
+            helper.grant_access(self.root_export, self.exports_file,
+                                export_name, host2, None)
+            self.nfs_mount_mock.assert_called_once_with(self.root_export)
+            reexport.assert_called_once_with(
+                self.exports_file,
+                ExportTable([
+                    Export(
+                        export_point=export_point,
+                        clients={
+                            host: options,
+                            host2: frozenset([])
+                        }
+                    )
+                ])
+            )
 
-    @mock.patch.object(Helper, '_reexport')
-    def test_revoke_access_invalid(self, reexport):
-        export_name = 'revoke_twice'
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    @mock.patch('scality_manila_utils.helper._reexport')
+    def test_revoke_access_invalid(self, reexport, verify_environment):
+        export_name = 'revoke'
+        export_point = os.path.join('/', export_name)
         host = 'hostname'
+        exports = ExportTable([
+            Export(
+                export_point=export_point,
+                clients={host: frozenset(['rw'])}
+            ),
+        ])
 
-        self.helper.add_export(export_name)
-        with self.assertRaises(ExportException):
-            self.helper.revoke_access('non_existing_export', host)
-            # Export added, but has no access granted to it
-            self.helper.revoke_access(export_name, host)
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=exports):
+            with self.assertRaises(ExportException):
+                helper.revoke_access(self.root_export, self.exports_file,
+                                     'non_existing_export', host)
 
-        self.helper.grant_access(export_name, host, ['rw'])
-        reexport.assert_called_once_with()
-        reexport.reset_mock()
-        self.helper.revoke_access(export_name, host)
-        reexport.assert_called_once_with()
-        with self.assertRaises(ExportException):
-            self.helper.revoke_access(export_name, 'ungranted_client')
-            # Test revoking access twice
-            self.helper.revoke_access(export_name, host)
+                helper.revoke_access(self.root_export, self.exports_file,
+                                     export_name, 'ungranted_client')
 
-    @mock.patch.object(Helper, '_reexport')
-    def test_revoke_access(self, reexport):
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    @mock.patch('scality_manila_utils.helper._reexport')
+    def test_revoke_access(self, reexport, verify_environment):
         export1 = 'export'
         export2 = 'otherexport'
         export_point1 = os.path.join('/', export1)
@@ -175,51 +229,102 @@ class TestHelper(unittest.TestCase):
         host1 = 'hostname'
         host2 = '192.168.0.1'
         host3 = '192.168.100.0/24'
-        exports = self.helper.exports.exports
 
-        self.helper.add_export(export1)
-        self.helper.add_export(export2)
-
-        # Grant access for three clients to export1
-        for client in (host1, host2, host3):
-            self.helper.grant_access(export1, client, ['rw'])
-
-        self.helper.grant_access(export2, host2, ['rw'])
-        reexport.reset_mock()
+        exports = ExportTable([
+            Export(
+                export_point=export_point1,
+                clients={
+                    host1: frozenset(['rw']),
+                    host2: frozenset(['rw']),
+                    host3: frozenset(['rw']),
+                }
+            ),
+            Export(
+                export_point=export_point2,
+                clients={host2: frozenset(['rw'])}
+            ),
+        ])
 
         # Ensure integrity of other grants when revoking access
-        self.helper.revoke_access(export1, host3)
-        reexport.assert_called_once_with()
-        self.assertNotIn(host3, exports[export_point1].clients)
-        self.assertIn(host2, exports[export_point1].clients)
-        self.assertIn(host1, exports[export_point1].clients)
-        self.assertIn(host2, exports[export_point2].clients)
-        reexport.reset_mock()
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=exports):
+            helper.revoke_access(self.root_export, self.exports_file,
+                                 export1, host3)
 
-        self.helper.revoke_access(export1, host2)
-        reexport.assert_called_once_with()
-        self.assertNotIn(host2, exports[export_point1].clients)
-        self.assertIn(host1, exports[export_point1].clients)
-        self.assertIn(host2, exports[export_point2].clients)
-        reexport.reset_mock()
+            # Check that `ensure_environment` decorator is called
+            verify_environment.assert_called_once_with(self.root_export,
+                                                       self.exports_file,
+                                                       export1, host3)
+            reexport.assert_called_once_with(
+                self.exports_file,
+                ExportTable([
+                    Export(
+                        export_point=export_point1,
+                        clients={
+                            host1: frozenset(['rw']),
+                            host2: frozenset(['rw']),
+                        }
+                    ),
+                    Export(
+                        export_point=export_point2,
+                        clients={host2: frozenset(['rw'])}
+                    ),
+                ])
+            )
+            reexport.reset_mock()
 
-        # Check that the export is removed together with the last permission
-        self.helper.revoke_access(export1, host1)
-        reexport.assert_called_once_with()
-        self.assertNotIn(export_point1, exports)
-        self.assertIn(host2, exports[export_point2].clients)
+            helper.revoke_access(self.root_export, self.exports_file,
+                                 export1, host2)
+            reexport.assert_called_once_with(
+                self.exports_file,
+                ExportTable([
+                    Export(
+                        export_point=export_point1,
+                        clients={
+                            host1: frozenset(['rw']),
+                        }
+                    ),
+                    Export(
+                        export_point=export_point2,
+                        clients={host2: frozenset(['rw'])}
+                    ),
+                ])
+            )
+            reexport.reset_mock()
+
+            # Check that the export is removed together with the last
+            # permission
+            helper.revoke_access(self.root_export, self.exports_file, export2,
+                                 host2)
+            reexport.assert_called_once_with(
+                self.exports_file,
+                ExportTable([
+                    Export(
+                        export_point=export_point1,
+                        clients={
+                            host1: frozenset(['rw']),
+                        }
+                    ),
+                ])
+            )
 
     @mock.patch('scality_manila_utils.utils.find_pids', return_value=[100])
     @mock.patch('os.kill')
     def test_reexport(self, kill, find_pids):
-        export_name = 'test_export'
         expected_exports = '/test_export                      10.0.0.1(rw)\n'
 
         # No pre-existing exports
         self.assertEqual(os.path.getsize(self.exports_file), 0)
 
-        self.helper.add_export(export_name)
-        self.helper.grant_access(export_name, '10.0.0.1', ['rw'])
+        helper._reexport(
+            self.exports_file,
+            ExportTable([
+                Export(
+                    export_point='/test_export',
+                    clients={'10.0.0.1': frozenset(['rw'])},
+                )
+            ])
+        )
         find_pids.assert_called_once_with('sfused')
         kill.assert_called_once_with(100, signal.SIGHUP)
         self.elevated_privileges_mock.assert_called_with()
@@ -228,22 +333,40 @@ class TestHelper(unittest.TestCase):
         with io.open(self.exports_file) as f:
             self.assertEqual(f.read(), expected_exports)
 
-    def test_get_export(self):
-        export1 = 'export1'
-        export2 = 'export2'
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    def test_get_export(self, verify_environment):
+        export = 'export'
+        export_point = os.path.join('/', export)
         host = 'host'
 
         with self.assertRaises(ExportNotFoundException):
-            self.helper.get_export(export1)
-            self.helper.get_export(export2)
+            helper.get_export(
+                root_export=self.root_export,
+                exports_file=self.exports_file,
+                export_name=export
+            )
 
-        self.helper.add_export(export1)
-        self.assertEqual(self.helper.get_export(export1), '{}')
+        # Check that `ensure_environment` decorator is called
+        verify_environment.assert_called_once_with(
+            root_export=self.root_export,
+            exports_file=self.exports_file,
+            export_name=export
+        )
 
-        self.helper.add_export(export2)
-        self.assertEqual(self.helper.get_export(export2), '{}')
+        # Getting a newly added export should have no clients associated
+        helper.add_export(self.root_export, export,
+                          exports_file=self.exports_file)
+        get = helper.get_export(self.root_export, self.exports_file, export)
+        self.assertEqual(get, '{}')
 
-        # Assert that the granted access is reflected in the next get
-        with mock.patch.object(Helper, '_reexport'):
-            self.helper.grant_access(export2, host, ['rw'])
-        self.assertEqual(self.helper.get_export(export2), '{"host": ["rw"]}')
+        exports = ExportTable([
+            Export(
+                export_point=export_point,
+                clients={host: frozenset(['rw'])}
+            ),
+        ])
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=exports):
+            get = helper.get_export(self.root_export, self.exports_file,
+                                    export)
+            self.assertEqual(get, '{"host": ["rw"]}')
