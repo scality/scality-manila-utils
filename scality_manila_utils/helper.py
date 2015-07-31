@@ -18,6 +18,7 @@ Collection of functions for
  - Management of client permissions on export locations
 """
 
+import functools
 import io
 import json
 import logging
@@ -94,6 +95,11 @@ def verify_environment(exports_file, *args, **kwargs):
         :py:class:`scality_manila_utils.exceptions.EnvironmentException`
         if the environment is not ready
     """
+    # Check path to nfs exports file
+    if not os.path.exists(exports_file):
+        raise EnvironmentException('Unable to locate exports file')
+
+    # Ensure that expected services are installed and running
     env_path = os.getenv('PATH').split(':')
     binaries = ('rpcbind', 'sfused')
     for binary in binaries:
@@ -101,6 +107,19 @@ def verify_environment(exports_file, *args, **kwargs):
         utils.process_check(binary)
 
 
+def ensure_environment(f):
+    """
+    Decorator function which verifies that expected services are running etc.
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        verify_environment(*args, **kwargs)
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+@ensure_environment
 def add_export(root_export, export_name, *args, **kwargs):
     """
     Add an export.
@@ -124,6 +143,7 @@ def add_export(root_export, export_name, *args, **kwargs):
                 os.chmod(export_point, 0o0777)
 
 
+@ensure_environment
 def wipe_export(root_export, exports_file, export_name):
     """
     Remove an export.
@@ -139,6 +159,7 @@ def wipe_export(root_export, exports_file, export_name):
     raise NotImplementedError
 
 
+@ensure_environment
 def grant_access(root_export, exports_file, export_name, host, options):
     """
     Grant access for a host to an export.
@@ -166,6 +187,7 @@ def grant_access(root_export, exports_file, export_name, host, options):
     _reexport(exports_file, exports)
 
 
+@ensure_environment
 def revoke_access(root_export, exports_file, export_name, host):
     """
     Revoke access for a host to an export.
@@ -186,6 +208,7 @@ def revoke_access(root_export, exports_file, export_name, host):
     _reexport(exports_file, exports)
 
 
+@ensure_environment
 def get_export(root_export, exports_file, export_name):
     """
     Retrieve client details of an export.
