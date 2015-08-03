@@ -15,6 +15,7 @@
 
 import contextlib
 import errno
+import fcntl
 import io
 import logging
 import os
@@ -187,3 +188,35 @@ def nfs_mount(export_path):
             os.rmdir(mount_point)
         except OSError as e:
             log.warning("Unable to clean up temporary NFS root: %s", e)
+
+
+class Lock(object):
+    """
+    Acquire a process level lock.
+
+    POSIX advisory file locking is leveraged for this locking mechanism. The
+    lock is consequently shared between all threads of the process. If several
+    threads acquire the same lock, it will be released as soon as one of them
+    releases it.
+    """
+    def __init__(self, lock_path):
+        """
+        Put an advisory file lock at `lock_path`.
+
+        :param lock_path: path to lock file
+        :type lock_path: string (unicode)
+        """
+        self.lock_path = lock_path
+
+    def __call__(self, f):
+        def wrapped(*args, **kwargs):
+            lock_file = io.open(self.lock_path, 'wb')
+            fcntl.lockf(lock_file.fileno(), fcntl.LOCK_EX)
+            log.debug("Acquired lock at '%s'", self.lock_path)
+            try:
+                f(*args, **kwargs)
+            finally:
+                lock_file.close()
+                log.debug("Released lock at '%s'", self.lock_path)
+
+        return wrapped
