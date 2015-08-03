@@ -12,7 +12,13 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Collection of functions for
+ - Addition and removal of exports
+ - Management of client permissions on export locations
+"""
 
+import functools
 import io
 import json
 import logging
@@ -29,152 +35,206 @@ from scality_manila_utils.exceptions import (EnvironmentException,
 log = logging.getLogger(__name__)
 
 
-class Helper(object):
+def _get_defined_exports(exports_file):
     """
-    Handles addition, removal of exports as well as client permissions.
+    Retrieve all defined exports from the nfs exports config file.
+
+    :param exports_file: path to nfs exports file
+    :type exports_file: string (unicode)
+    :returns: py:class:`scality_manila_utils.exports.ExportTable`
+        with the exports read from file
     """
+    with io.open(exports_file, 'rt') as exports_file:
+        exports = ExportTable.deserialize(exports_file)
+    return exports
 
-    def __init__(self, root_volume, exports_path):
-        """
-        Create a new Helper instance operating on the given exports file.
 
-        :param root_volume: root volume exported by the sfused nfs connector
-        :type root_volume: string (unicode)
-        :param exports_path: path to nfs exports file
-        :type exports_path: string (unicode)
-        """
-        # Ring root volume export
-        self.root_volume = root_volume
+def _get_export_points(root_export):
+    """
+    Retrieve all created export points.
 
-        if not os.path.exists(exports_path):
-            raise EnvironmentException('Unable to locate exports file')
+    The returned exports include the ones without any access grants, and
+    thus has no entry in the exports configuration file.
 
-        # Path to nfs exports file
-        self.exports_path = exports_path
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :returns: list of strings
+    """
+    with utils.elevated_privileges():
+        with utils.nfs_mount(root_export) as root:
+            return os.listdir(root)
 
-        with io.open(self.exports_path, 'rt') as exports_file:
-            self.exports = ExportTable.deserialize(exports_file)
 
-    def verify_environment(self):
-        """
-        Preliminary checks for installed binaries and running services.
+def _reexport(exports_file, exports):
+    """
+    Export all defined filesystems.
 
-        :raises:
-            :py:class:`scality_manila_utils.exceptions.EnvironmentException`
-            if the environment is not ready
-        """
-        env_path = os.getenv('PATH').split(':')
-        binaries = ('rpcbind', 'sfused')
-        for binary in binaries:
-            utils.binary_check(binary, env_path)
-            utils.process_check(binary)
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :param exports: table of exports to re-export
+    :type exports: :py:class:`scality_manila_utils.export.ExportTable`
+    """
+    serialized_exports = exports.serialize()
+    sfused_pids = utils.find_pids('sfused')
 
-    def _reexport(self):
-        """
-        Export all defined filesystems.
-        """
-        exports_data = self.exports.serialize()
-        sfused_pids = utils.find_pids('sfused')
+    with utils.elevated_privileges():
+        utils.safe_write(serialized_exports, exports_file)
+        for pid in sfused_pids:
+            log.debug('Killing sfused pid %d', pid)
+            os.kill(pid, signal.SIGHUP)
 
-        with utils.elevated_privileges():
-            utils.safe_write(exports_data, self.exports_path)
-            for pid in sfused_pids:
-                log.debug('Killing sfused pid %d', pid)
-                os.kill(pid, signal.SIGHUP)
 
-    def add_export(self, export_name):
-        """
-        Add an export.
+def verify_environment(exports_file, *args, **kwargs):
+    """
+    Preliminary checks for installed binaries and running services.
 
-        :param export_name: name of export
-        :type export_name: string (unicode)
-        """
-        if not export_name or '/' in export_name:
-            raise ExportException('Invalid export name')
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :raises:
+        :py:class:`scality_manila_utils.exceptions.EnvironmentException`
+        if the environment is not ready
+    """
+    # Check path to nfs exports file
+    if not os.path.exists(exports_file):
+        raise EnvironmentException('Unable to locate exports file')
 
-        with utils.elevated_privileges():
-            with utils.nfs_mount(self.root_volume) as root:
-                export_point = os.path.join(root, export_name)
+    # Ensure that expected services are installed and running
+    env_path = os.getenv('PATH').split(':')
+    binaries = ('rpcbind', 'sfused')
+    for binary in binaries:
+        utils.binary_check(binary, env_path)
+        utils.process_check(binary)
 
-                # Create export directory if it does not already exist
-                if not os.path.exists(export_point):
-                    os.mkdir(export_point)
-                    os.chmod(export_point, 0o0777)
 
-    def wipe_export(self, export_name):
-        """
-        Remove an export.
+def ensure_environment(f):
+    """
+    Decorator function which verifies that expected services are running etc.
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        verify_environment(*args, **kwargs)
+        return f(*args, **kwargs)
 
-        :param export_name: name of export to remove
-        :type export_name: string (unicode)
-        """
-        raise NotImplementedError
+    return wrapper
 
-    def grant_access(self, export_name, host, options):
-        """
-        Grant access for a host to an export.
 
-        :param export_name: name of export to grant access to
-        :type export_name: string (unicode)
-        :param host: host to grant access for
-        :type host: string (unicode)
-        :param options: sequence of nfs options
-        :type options: iterable of strings (unicode)
-        """
-        if export_name not in self._get_exports():
-            raise ExportNotFoundException("No export point found for "
-                                          "'{0:s}'".format(export_name))
+@ensure_environment
+def add_export(root_export, export_name, *args, **kwargs):
+    """
+    Add an export.
 
-        export_point = os.path.join('/', export_name)
-        self.exports.add_client(export_point, host, options)
-        self._reexport()
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :param export_name: name of export to add
+    :type export_name: string (unicode)
+    """
+    if not export_name or '/' in export_name:
+        raise ExportException('Invalid export name')
 
-    def revoke_access(self, export_name, host):
-        """
-        Revoke access for a host to an export.
+    with utils.elevated_privileges():
+        with utils.nfs_mount(root_export) as root:
+            export_point = os.path.join(root, export_name)
 
-        :param export_name: name of export for revocation
-        :type export_name: string (unicode)
-        :param host: host to revoke access for
-        :type host: string (unicode)
-        """
-        export_point = os.path.join('/', export_name)
-        self.exports.remove_client(export_point, host)
-        self._reexport()
+            # Create export directory if it does not already exist
+            if not os.path.exists(export_point):
+                os.mkdir(export_point)
+                os.chmod(export_point, 0o0777)
 
-    def get_export(self, export_name):
-        """
-        Retrieve client details of an export.
 
-        :param export_name: name of export
-        :type export_name: string (unicode)
-        :returns: string with export client details in json format
-        """
-        export_point = os.path.join('/', export_name)
-        if export_point in self.exports:
-            clients = dict(
-                (host, list(permissions)) for
-                host, permissions in
-                self.exports[export_point].clients.items()
-            )
-        elif export_name in self._get_exports():
-            # Export has been created, but without any access grants
-            clients = {}
-        else:
-            raise ExportNotFoundException("Export '{0:s}' not found".format(
-                                          export_name))
+@ensure_environment
+def wipe_export(root_export, exports_file, export_name):
+    """
+    Remove an export.
 
-        return json.dumps(clients)
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :param export_name: name of export to remove
+    :type export_name: string (unicode)
+    """
+    raise NotImplementedError
 
-    def _get_exports(self):
-        """
-        Retrieve all created export points.
 
-        The returned exports include the ones without any access grants, and
-        thus has no entry in the exports configuration file.
+@ensure_environment
+def grant_access(root_export, exports_file, export_name, host, options):
+    """
+    Grant access for a host to an export.
 
-        :returns: list of strings
-        """
-        with utils.elevated_privileges():
-            with utils.nfs_mount(self.root_volume) as root:
-                return os.listdir(root)
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :param export_name: name of export to grant access to
+    :type export_name: string (unicode)
+    :param host: host to grant access for
+    :type host: string (unicode)
+    :param options: sequence of nfs options
+    :type options: iterable of strings (unicode)
+    """
+    if export_name not in _get_export_points(root_export):
+        raise ExportNotFoundException("No export point found for "
+                                      "'{0:s}'".format(export_name))
+
+    export_point = os.path.join('/', export_name)
+    exports = _get_defined_exports(exports_file)
+
+    exports.add_client(export_point, host, options)
+    _reexport(exports_file, exports)
+
+
+@ensure_environment
+def revoke_access(root_export, exports_file, export_name, host):
+    """
+    Revoke access for a host to an export.
+
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :param export_name: name of export for revocation
+    :type export_name: string (unicode)
+    :param host: host to revoke access for
+    :type host: string (unicode)
+    """
+    export_point = os.path.join('/', export_name)
+    exports = _get_defined_exports(exports_file)
+    exports.remove_client(export_point, host)
+    _reexport(exports_file, exports)
+
+
+@ensure_environment
+def get_export(root_export, exports_file, export_name):
+    """
+    Retrieve client details of an export.
+
+    :param root_export: nfs root export which holds the export points exposed
+        through manila
+    :type root_export: string (unicode)
+    :param exports_file: path to the nfs exports file
+    :type exports_file: string (unicode)
+    :param export_name: name of export
+    :type export_name: string (unicode)
+    :returns: string with export client details in json format
+    """
+    export_point = os.path.join('/', export_name)
+    exports = _get_defined_exports(exports_file)
+    if export_point in exports:
+        clients = dict(
+            (host, list(permissions)) for
+            host, permissions in
+            exports[export_point].clients.items()
+        )
+    elif export_name in _get_export_points(root_export):
+        # Export has been created, but without any access grants
+        clients = {}
+    else:
+        raise ExportNotFoundException("Export '{0:s}' not found".format(
+                                      export_name))
+
+    return json.dumps(clients)

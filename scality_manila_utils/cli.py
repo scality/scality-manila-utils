@@ -23,9 +23,7 @@ import sys
 import traceback
 
 import scality_manila_utils
-
-from scality_manila_utils.helper import Helper
-from scality_manila_utils.exceptions import EnvironmentException
+import scality_manila_utils.helper
 
 log = logging.getLogger(__name__)
 
@@ -102,9 +100,9 @@ def main(args=None):
 
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument(
-        '--exports',
+        '--exports-file',
         help='Path to exports file',
-        default='/etc/exports.conf'
+        default='/etc/exports.conf',
     )
     pre_parser.add_argument(
         '--root-export',
@@ -184,11 +182,13 @@ def main(args=None):
         help='Filesystem to get information about'
     )
 
-    parser_create.set_defaults(func=Helper.add_export)
-    parser_grant.set_defaults(func=Helper.grant_access)
-    parser_revoke.set_defaults(func=Helper.revoke_access)
-    parser_check.set_defaults(func=Helper.verify_environment)
-    parser_get.set_defaults(func=Helper.get_export)
+    parser_create.set_defaults(func=scality_manila_utils.helper.add_export)
+    parser_grant.set_defaults(func=scality_manila_utils.helper.grant_access)
+    parser_revoke.set_defaults(func=scality_manila_utils.helper.revoke_access)
+    parser_get.set_defaults(func=scality_manila_utils.helper.get_export)
+    parser_check.set_defaults(
+        func=scality_manila_utils.helper.verify_environment
+    )
 
     parsed_args = command_parser.parse_args(args)
 
@@ -199,16 +199,9 @@ def main(args=None):
     # Drop any elevated permissions
     drop_privileges()
 
-    # Setup exports helper
-    try:
-        helper = Helper(parsed_args.root_export, parsed_args.exports)
-    except EnvironmentException:
-        log.exception("Unable to setup")
-        raise
-
     command_args = dict(
         (k, v) for k, v in vars(parsed_args).items()
-        if k not in ('exports', 'root_export', 'func', 'debug')
+        if k not in ('func', 'debug')
     )
 
     formatted_args = ", ".join(
@@ -217,7 +210,7 @@ def main(args=None):
     )
     log.info("Invoking %s(%s)", parsed_args.func.__name__, formatted_args)
     try:
-        result = parsed_args.func(helper, **command_args)
+        result = parsed_args.func(**command_args)
         if result is not None:
             print(result)
     except Exception as e:
@@ -225,6 +218,7 @@ def main(args=None):
         traceback.print_exc()
         exit_code = getattr(e, 'EXIT_CODE', 1)
         sys.exit(exit_code)
+
 
 if __name__ == '__main__':
     main()

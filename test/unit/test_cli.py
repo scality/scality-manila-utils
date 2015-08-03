@@ -34,9 +34,13 @@ class TestCli(unittest.TestCase):
             'verify_environment.__name__': 'verify_environment',
             'get_export.__name__': 'get_export',
         }
-        patcher = mock.patch('scality_manila_utils.cli.Helper', **attrs)
+        patcher = mock.patch('scality_manila_utils.helper', **attrs)
         self.addCleanup(patcher.stop)
         self.helper = patcher.start()
+
+        # Command line defaults
+        self.root_export = '127.0.0.1:/'
+        self.exports_path = '/etc/exports.conf'
 
     @mock.patch('scality_manila_utils.cli.drop_privileges')
     @mock.patch('os.getuid', return_value=0)
@@ -47,7 +51,6 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(args)
         drop_privileges.called_once_with()
-        self.helper.assert_called_once_with(root_export, exports)
 
         # Non-root invocation
         getuid.return_value = 1000
@@ -58,7 +61,10 @@ class TestCli(unittest.TestCase):
     @mock.patch('os.getuid', return_value=0)
     def test_invoke_check(self, getuid, drop_privileges):
         scality_manila_utils.cli.main(['check'])
-        self.helper.verify_environment.assert_called_once_with(self.helper())
+        self.helper.verify_environment.assert_called_once_with(
+            root_export=self.root_export,
+            exports_file=self.exports_path,
+        )
 
     @mock.patch('scality_manila_utils.cli.drop_privileges')
     @mock.patch('os.getuid', return_value=0)
@@ -69,7 +75,8 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(['grant', export_name, host] + options)
         self.helper.grant_access.assert_called_once_with(
-            self.helper(),
+            root_export=self.root_export,
+            exports_file=self.exports_path,
             export_name=export_name,
             host=host,
             options=options
@@ -83,7 +90,8 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(['revoke', export_name, host])
         self.helper.revoke_access.assert_called_once_with(
-            self.helper(),
+            root_export=self.root_export,
+            exports_file=self.exports_path,
             export_name=export_name,
             host=host,
         )
@@ -95,7 +103,8 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(['create', export_name])
         self.helper.add_export.assert_called_once_with(
-            self.helper(),
+            root_export=self.root_export,
+            exports_file=self.exports_path,
             export_name=export_name,
         )
 
@@ -106,7 +115,8 @@ class TestCli(unittest.TestCase):
 
         scality_manila_utils.cli.main(['get', export_name])
         self.helper.get_export.assert_called_once_with(
-            self.helper(),
+            root_export=self.root_export,
+            exports_file=self.exports_path,
             export_name=export_name,
         )
 
