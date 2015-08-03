@@ -34,6 +34,8 @@ from scality_manila_utils.exceptions import (EnvironmentException,
 
 log = logging.getLogger(__name__)
 
+LOCK_PATH = '/tmp/scality-manila-utils.lock'
+
 
 def _get_defined_exports(exports_file):
     """
@@ -119,6 +121,7 @@ def ensure_environment(f):
     return wrapper
 
 
+@utils.Lock(LOCK_PATH)
 @ensure_environment
 def add_export(root_export, export_name, *args, **kwargs):
     """
@@ -159,6 +162,7 @@ def wipe_export(root_export, exports_file, export_name):
     raise NotImplementedError
 
 
+@utils.Lock(LOCK_PATH)
 @ensure_environment
 def grant_access(root_export, exports_file, export_name, host, options):
     """
@@ -187,6 +191,7 @@ def grant_access(root_export, exports_file, export_name, host, options):
     _reexport(exports_file, exports)
 
 
+@utils.Lock(LOCK_PATH)
 @ensure_environment
 def revoke_access(root_export, exports_file, export_name, host):
     """
@@ -208,6 +213,7 @@ def revoke_access(root_export, exports_file, export_name, host):
     _reexport(exports_file, exports)
 
 
+@utils.Lock(LOCK_PATH)
 @ensure_environment
 def get_export(root_export, exports_file, export_name):
     """
