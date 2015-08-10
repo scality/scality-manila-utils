@@ -39,3 +39,8 @@ class ClientExistsException(ExportException):
 class ClientNotFoundException(ExportException):
     """Raised when a permission is not defined for an export."""
     EXIT_CODE = 12
+
+
+class ExportHasGrantsException(ExportException):
+    """Raised when attempting to remove an export with existing clients."""
+    EXIT_CODE = 13

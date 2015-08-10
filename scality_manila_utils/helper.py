@@ -30,7 +30,8 @@ from scality_manila_utils import utils
 from scality_manila_utils.export import ExportTable
 from scality_manila_utils.exceptions import (EnvironmentException,
                                              ExportException,
-                                             ExportNotFoundException)
+                                             ExportNotFoundException,
+                                             ExportHasGrantsException)
 
 log = logging.getLogger(__name__)
 
@@ -148,6 +149,9 @@ def wipe_export(root_export, exports_file, export_name):
     """
     Remove an export.
 
+    The export point is not actually removed, but renamed with the prefix
+    "TRASH-".
+
     :param root_export: nfs root export which holds the export points exposed
         through manila
     :type root_export: string (unicode)
@@ -156,7 +160,26 @@ def wipe_export(root_export, exports_file, export_name):
     :param export_name: name of export to remove
     :type export_name: string (unicode)
     """
-    raise NotImplementedError
+    export_point = os.path.join('/', export_name)
+    if export_point in _get_defined_exports(exports_file):
+        raise ExportHasGrantsException('Unable to remove export with grants')
+
+    if export_name not in _get_export_points(root_export):
+        raise ExportNotFoundException("No export point found for "
+                                      "'{0:s}'".format(export_name))
+
+    with utils.elevated_privileges():
+        with utils.nfs_mount(root_export) as root:
+            tombstone = 'TRASH-{0:s}'.format(export_name)
+            tombstone_path = os.path.join(root, tombstone)
+            export_path = os.path.join(root, export_name)
+
+            log.info("Renaming export '%s' to '%s'", export_name, tombstone)
+            try:
+                os.rename(export_path, tombstone_path)
+            except OSError:
+                log.error("Unable to rename '%s' for removal", export_name)
+                raise
 
 
 @ensure_environment
