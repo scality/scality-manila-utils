@@ -181,6 +181,10 @@ def wipe_export(root_export, exports_file, export_name):
                 log.error("Unable to rename '%s' for removal", export_name)
                 raise
 
+            # Persisting the parent of the moved directory is required, as
+            # it keeps track of its contents.
+            utils.fsync_path(root)
+
 
 @ensure_environment
 def grant_access(root_export, exports_file, export_name, host, options):
