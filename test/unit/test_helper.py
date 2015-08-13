@@ -395,7 +395,6 @@ class TestHelper(unittest.TestCase):
         with self.assertRaises(ExportNotFoundException):
             helper.wipe_export(self.root_export, self.exports_file, 'void')
 
-
     @mock.patch('scality_manila_utils.helper.verify_environment')
     def test_wipe_export(self, verify_environment):
         export_name = "test_export"
@@ -407,6 +406,9 @@ class TestHelper(unittest.TestCase):
         helper.add_export(self.root_export, export_name)
         self.assertTrue(os.path.exists(absolute_export_path))
 
-        helper.wipe_export(self.root_export, self.exports_file, export_name)
-        self.assertFalse(os.path.exists(absolute_export_path))
-        self.assertTrue(os.path.exists(tombstone_path))
+        with mock.patch('scality_manila_utils.utils.fsync_path') as fsync_path:
+            helper.wipe_export(self.root_export, self.exports_file,
+                               export_name)
+            fsync_path.assert_called_once_with(self.nfs_root)
+            self.assertFalse(os.path.exists(absolute_export_path))
+            self.assertTrue(os.path.exists(tombstone_path))

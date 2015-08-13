@@ -161,3 +161,17 @@ class TestUtils(unittest.TestCase):
         except TestException:
             self.assertFalse(os.path.exists(root))
             check_call.assert_called_once_with(['umount', root])
+
+    def test_fsync_path(self):
+        fd = 10
+        path = '/'
+        with mock.patch('os.open', return_value=fd) as osopen:
+            with mock.patch('os.fsync') as fsync:
+                with mock.patch('os.close') as osclose:
+                    utils.fsync_path(path)
+                    osopen.assert_called_once_with(
+                        path,
+                        os.O_RDONLY | os.O_DIRECTORY
+                    )
+                    fsync.assert_called_once_with(fd)
+                    osclose.assert_called_once_with(fd)
