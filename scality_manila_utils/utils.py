@@ -119,6 +119,22 @@ def process_check(process):
                                    "started".format(process))
 
 
+def fsync_path(path):
+    """
+    Fsync a directory.
+
+    :param path: path to directory to fsync
+    :type path: string (unicode)
+    """
+    fd = None
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        os.fsync(fd)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def safe_write(text, path, permissions=0o644):
     """
     Write contents to file in a safe manner.
@@ -145,13 +161,7 @@ def safe_write(text, path, permissions=0o644):
         os.rename(f.name, path)
 
     # fsync the directory holding the file just written and moved
-    dir_fd = None
-    try:
-        dir_fd = os.open(target_dir, os.O_RDONLY)
-        os.fsync(dir_fd)
-    finally:
-        if dir_fd is not None:
-            os.close(dir_fd)
+    fsync_path(target_dir)
 
 
 @contextlib.contextmanager

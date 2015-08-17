@@ -182,10 +182,20 @@ def main(args=None):
         help='Filesystem to get information about'
     )
 
+    parser_wipe = subparsers.add_parser(
+        'wipe',
+        help='Remove an existing export. The export must not have any grants.'
+    )
+    parser_wipe.add_argument(
+        'export_name',
+        help='Filesystem to remove'
+    )
+
     parser_create.set_defaults(func=scality_manila_utils.helper.add_export)
     parser_grant.set_defaults(func=scality_manila_utils.helper.grant_access)
     parser_revoke.set_defaults(func=scality_manila_utils.helper.revoke_access)
     parser_get.set_defaults(func=scality_manila_utils.helper.get_export)
+    parser_wipe.set_defaults(func=scality_manila_utils.helper.wipe_export)
     parser_check.set_defaults(
         func=scality_manila_utils.helper.verify_environment
     )

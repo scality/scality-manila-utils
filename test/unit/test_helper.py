@@ -26,7 +26,8 @@ from scality_manila_utils import helper
 from scality_manila_utils.export import ExportTable, Export
 from scality_manila_utils.exceptions import (EnvironmentException,
                                              ExportException,
-                                             ExportNotFoundException)
+                                             ExportNotFoundException,
+                                             ExportHasGrantsException)
 
 
 class TestHelper(unittest.TestCase):
@@ -370,3 +371,44 @@ class TestHelper(unittest.TestCase):
             get = helper.get_export(self.root_export, self.exports_file,
                                     export)
             self.assertEqual(get, '{"host": ["rw"]}')
+
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    def test_wipe_export_invalid(self, verify_environment):
+        export_name = 'export_with_grants'
+        host = '10.0.0.0/24'
+        export_point = os.path.join('/', export_name)
+        exports = ExportTable([
+            Export(
+                export_point=export_point,
+                clients={host: frozenset(['rw'])}
+            ),
+        ])
+
+        # Attempt to remove an export with existing grants
+        with mock.patch('scality_manila_utils.helper._get_defined_exports',
+                        return_value=exports):
+            with self.assertRaises(ExportHasGrantsException):
+                helper.wipe_export(self.root_export, self.exports_file,
+                                   export_name)
+
+        # Attempt to remove an export which does not exist
+        with self.assertRaises(ExportNotFoundException):
+            helper.wipe_export(self.root_export, self.exports_file, 'void')
+
+    @mock.patch('scality_manila_utils.helper.verify_environment')
+    def test_wipe_export(self, verify_environment):
+        export_name = "test_export"
+        absolute_export_path = os.path.join(self.nfs_root, export_name)
+        tombstone_path = os.path.join(self.nfs_root,
+                                      'TRASH-{0:s}'.format(export_name))
+
+        self.assertFalse(os.path.exists(absolute_export_path))
+        helper.add_export(self.root_export, export_name)
+        self.assertTrue(os.path.exists(absolute_export_path))
+
+        with mock.patch('scality_manila_utils.utils.fsync_path') as fsync_path:
+            helper.wipe_export(self.root_export, self.exports_file,
+                               export_name)
+            fsync_path.assert_called_once_with(self.nfs_root)
+            self.assertFalse(os.path.exists(absolute_export_path))
+            self.assertTrue(os.path.exists(tombstone_path))
