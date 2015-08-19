@@ -197,3 +197,48 @@ def nfs_mount(export_path):
             os.rmdir(mount_point)
         except OSError as e:
             log.warning("Unable to clean up temporary NFS root: %s", e)
+
+
+def is_stored_on_sofs(path):
+    """
+    Check if the given location is stored on a SOFS filesystem.
+
+    :param path: an absolute path, e.g `/ring/fs/samba_shares`
+    :type path: string
+    :rtype: boolean
+    """
+    with io.open('/proc/mounts') as mounts:
+        for mount in mounts.readlines():
+            # A typical line looks line:
+            # /dev/fuse on /ring/0.XX type fuse (rw,nosuid,nodev,allow_other)
+            parts = mount.split()
+            mnt_type = parts[0]
+            mnt_point = parts[1].rstrip('/')
+            if (mnt_type.endswith('fuse') and
+                    path.rstrip('/').startswith(mnt_point)):
+                        return True
+    return False
+
+
+def execute(cmd, error_msg):
+    """
+    Utility function to execute a command
+
+    :param cmd: the command with arguments to execute
+    :type cmd: iterable of `str` or a single `str`
+    :param error_msg: the exception message in case something went wrong.
+        `error_msg` must include the placeholders `{stdout}` and `{stderr}`
+    :type error_msg: `str`
+    :rtype: (`unicode`, `unicode`)
+    """
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+
+    # `subprocess.communicate` returns a byte stream
+    stdout, stderr = process.communicate()
+    stdout, stderr = stdout.decode(), stderr.decode()
+
+    if process.returncode != 0:
+        raise EnvironmentError(error_msg.format(stdout=stdout, stderr=stderr))
+
+    return stdout, stderr

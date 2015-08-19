@@ -175,3 +175,43 @@ class TestUtils(unittest.TestCase):
                     )
                     fsync.assert_called_once_with(fd)
                     osclose.assert_called_once_with(fd)
+
+    def test_is_stored_on_sofs(self):
+        self.assertFalse(utils.is_stored_on_sofs('fake'))
+
+        proc_mount = '/dev/fuse /ring/fs \n'
+        mock_open = mock.mock_open(read_data=proc_mount)
+        with mock.patch('io.open', mock_open) as mock_open:
+            self.assertTrue(utils.is_stored_on_sofs('/ring/fs'))
+            self.assertTrue(utils.is_stored_on_sofs('/ring/fs/'))
+            self.assertTrue(utils.is_stored_on_sofs('/ring/fs/dir'))
+
+        expected_calls = [mock.call('/proc/mounts')] * 3
+        self.assertEqual(expected_calls, mock_open.call_args_list)
+
+    @mock.patch('subprocess.Popen', autospec=True, spec_set=True)
+    def test_execute_when_cmd_failed(self, mock_popen):
+        type(mock_popen.return_value).returncode = mock.PropertyMock(
+            return_value=1)
+        mock_popen.return_value.communicate.return_value = (b'out', b'err')
+
+        cmd = ['cmd', 'arg1']
+        try:
+            utils.execute(cmd, "error: {stdout}, {stderr}")
+        except EnvironmentError as exc:
+            self.assertEqual('error: out, err', exc.args[0])
+        else:
+            self.fail("Should have raised an EnvironmentError")
+
+        mock_popen.assert_called_once_with(cmd, stdout=-1, stderr=-1)
+
+    @mock.patch('subprocess.Popen', autospec=True, spec_set=True)
+    def test_execute_when_cmd_succeeded(self, mock_popen):
+        type(mock_popen.return_value).returncode = mock.PropertyMock(
+            return_value=0)
+        mock_popen.return_value.communicate.return_value = (b'out', b'err')
+
+        cmd = ['cmd', 'arg1']
+        self.assertEqual((u'out', u'err'), utils.execute(cmd, ""))
+
+        mock_popen.assert_called_once_with(cmd, stdout=-1, stderr=-1)
