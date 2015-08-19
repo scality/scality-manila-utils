@@ -229,6 +229,10 @@ def revoke_access(root_export, exports_file, export_name, host):
     :param host: host to revoke access for
     :type host: string (unicode)
     """
+    if export_name not in _get_export_points(root_export):
+        raise ExportNotFoundException("Export '{0:s}' not found".format(
+                                      export_name))
+
     export_point = os.path.join('/', export_name)
     exports = _get_defined_exports(exports_file)
     exports.remove_client(export_point, host)
