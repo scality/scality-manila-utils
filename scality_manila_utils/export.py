@@ -18,7 +18,6 @@ import re
 
 from scality_manila_utils.exceptions import (ExportException,
                                              DeserializationException,
-                                             ExportNotFoundException,
                                              ClientExistsException,
                                              ClientNotFoundException)
 
@@ -86,7 +85,7 @@ class ExportTable(object):
         :type host: string (unicode)
         """
         if export_point not in self.exports:
-            raise ExportNotFoundException("No export point found for "
+            raise ClientNotFoundException("No acl defined for "
                                           "'{0:s}'".format(export_point))
 
         export = self.exports[export_point]

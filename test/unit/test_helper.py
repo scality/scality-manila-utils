@@ -27,7 +27,8 @@ from scality_manila_utils.export import ExportTable, Export
 from scality_manila_utils.exceptions import (EnvironmentException,
                                              ExportException,
                                              ExportNotFoundException,
-                                             ExportHasGrantsException)
+                                             ExportHasGrantsException,
+                                             ClientNotFoundException)
 
 
 class TestHelper(unittest.TestCase):
@@ -204,6 +205,9 @@ class TestHelper(unittest.TestCase):
         export_name = 'revoke'
         export_point = os.path.join('/', export_name)
         host = 'hostname'
+
+        helper.add_export(self.root_export, export_name,
+                          exports_file=self.exports_file)
         exports = ExportTable([
             Export(
                 export_point=export_point,
@@ -217,6 +221,7 @@ class TestHelper(unittest.TestCase):
                 helper.revoke_access(self.root_export, self.exports_file,
                                      'non_existing_export', host)
 
+            with self.assertRaises(ClientNotFoundException):
                 helper.revoke_access(self.root_export, self.exports_file,
                                      export_name, 'ungranted_client')
 
@@ -230,6 +235,12 @@ class TestHelper(unittest.TestCase):
         host1 = 'hostname'
         host2 = '192.168.0.1'
         host3 = '192.168.100.0/24'
+
+        # Add exports
+        for export in (export1, export2):
+            helper.add_export(self.root_export, export,
+                              exports_file=self.exports_file)
+        verify_environment.reset_mock()
 
         exports = ExportTable([
             Export(
