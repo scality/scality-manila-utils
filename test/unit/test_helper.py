@@ -61,11 +61,11 @@ class TestHelper(unittest.TestCase):
             with mock.patch('scality_manila_utils.utils.process_check') as pc:
                 with mock.patch('os.getenv', return_value='/a:/b'):
                     helper.verify_environment(self.exports_file)
-                    bc.has_calls((
+                    bc.assert_has_calls((
                         mock.call('rpcbind', ['/a', '/b']),
                         mock.call('sfused', ['/a', '/b']),
                     ))
-                    pc.has_calls((
+                    pc.assert_has_calls((
                         mock.call('rpcbind'),
                         mock.call('sfused'),
                     ))
