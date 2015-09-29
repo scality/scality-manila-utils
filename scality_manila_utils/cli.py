@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import argparse
 import grp
 import logging
@@ -20,7 +21,6 @@ import logging.handlers
 import os
 import pwd
 import sys
-import traceback
 
 import scality_manila_utils
 import scality_manila_utils.nfs_helper
@@ -244,7 +244,9 @@ def main(args=None):
             print(result)
     except Exception as e:
         log.exception("Invocation failed")
-        traceback.print_exc()
+        # Don't print the full stack trace on stderr, it's ugly and hard to
+        # parse as a human. The stack trace is already logged in syslog.
+        print(e, file=sys.stderr)
         exit_code = getattr(e, 'EXIT_CODE', 1)
         sys.exit(exit_code)
 
