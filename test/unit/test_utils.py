@@ -18,6 +18,7 @@ import io
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import unittest2 as unittest
 
@@ -175,3 +176,60 @@ class TestUtils(unittest.TestCase):
                     )
                     fsync.assert_called_once_with(fd)
                     osclose.assert_called_once_with(fd)
+
+    @mock.patch('os.seteuid', mock.Mock())
+    @mock.patch('os.setegid', mock.Mock())
+    def test_is_stored_on_sofs(self):
+        header = (
+            'Filesystem     1024-blocks    Used Available Capacity Mounted on'
+        )
+        fuse_line = '/dev/fuse          4088408       0   4088408       0% /r'
+        bad_line = '/dev/sda1         20608636 1119716  18619320       6% /'
+
+        on_sofs = header + '\n' + fuse_line
+        with mock.patch('subprocess.check_output', return_value=on_sofs,
+                        autospec=True) as df:
+            path = '/r/some/share'
+            self.assertTrue(utils.is_stored_on_sofs(path))
+            df.assert_called_once_with(['df', '-P', path])
+
+        no_sofs = header + '\n' + bad_line
+        with mock.patch('subprocess.check_output', return_value=no_sofs,
+                        autospec=True) as df:
+            path = '/var/log'
+            self.assertFalse(utils.is_stored_on_sofs(path))
+            df.assert_called_once_with(['df', '-P', path])
+
+        side_effect = subprocess.CalledProcessError(None, None, None)
+        with mock.patch('subprocess.check_output',
+                        autospec=True, side_effect=side_effect) as df:
+            self.assertRaises(subprocess.CalledProcessError,
+                              utils.is_stored_on_sofs, path)
+            df.assert_called_once_with(['df', '-P', path])
+
+    @mock.patch('subprocess.Popen', autospec=True, spec_set=True)
+    def test_execute_when_cmd_failed(self, mock_popen):
+        type(mock_popen.return_value).returncode = mock.PropertyMock(
+            return_value=1)
+        mock_popen.return_value.communicate.return_value = (b'out', b'err')
+
+        cmd = ['cmd', 'arg1']
+        try:
+            utils.execute(cmd, "error: {stdout}, {stderr}")
+        except EnvironmentError as exc:
+            self.assertEqual('error: out, err', exc.args[0])
+        else:
+            self.fail("Should have raised an EnvironmentError")
+
+        mock_popen.assert_called_once_with(cmd, stdout=-1, stderr=-1)
+
+    @mock.patch('subprocess.Popen', autospec=True, spec_set=True)
+    def test_execute_when_cmd_succeeded(self, mock_popen):
+        type(mock_popen.return_value).returncode = mock.PropertyMock(
+            return_value=0)
+        mock_popen.return_value.communicate.return_value = (b'out', b'err')
+
+        cmd = ['cmd', 'arg1']
+        self.assertEqual((u'out', u'err'), utils.execute(cmd, ""))
+
+        mock_popen.assert_called_once_with(cmd, stdout=-1, stderr=-1)

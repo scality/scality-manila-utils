@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import argparse
 import grp
 import logging
@@ -20,10 +21,10 @@ import logging.handlers
 import os
 import pwd
 import sys
-import traceback
 
 import scality_manila_utils
-import scality_manila_utils.helper
+import scality_manila_utils.nfs_helper
+import scality_manila_utils.smb_helper
 
 log = logging.getLogger(__name__)
 
@@ -98,109 +99,125 @@ def main(args=None):
         log.error('Invoked without superuser privileges')
         raise RuntimeError("This program requires superuser privileges")
 
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument(
+    parser = argparse.ArgumentParser(
+        description='Manila exports management',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        '--version', action='version',
+        version=scality_manila_utils.__version__
+    )
+    parser.add_argument(
+        '--debug', help='Set debug log level', action='store_true',
+        default=False
+    )
+
+    protocol_parsers = parser.add_subparsers()
+    nfs_parser = protocol_parsers.add_parser(
+        'nfs', description='Manage NFS exports', help='Manage NFS exports',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    smb_parser = protocol_parsers.add_parser(
+        'smb', description='Manage SMB exports', help='Manage SMB exports',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    nfs_parser.add_argument(
         '--exports-file',
-        help='Path to exports file',
+        help='Path to NFS exports file',
         default='/etc/exports.conf',
     )
-    pre_parser.add_argument(
+    nfs_parser.add_argument(
         '--root-export',
         help='NFS export path to the ring NFS root volume',
         default='127.0.0.1:/'
     )
-    pre_parser.add_argument(
-        '--debug',
-        help='Set debug log level',
-        action='store_true',
-        default=False
-    )
-    pre_parser.add_argument(
-        '--version',
-        action='version',
-        version=scality_manila_utils.__version__
+    smb_parser.add_argument(
+        '--root-export',
+        help='SOFS directory that holds the SMB shares',
+        default='/ring/fs'
     )
 
-    command_parser = argparse.ArgumentParser(
-        parents=[pre_parser],
-        description='Manila exports management',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    subparsers = command_parser.add_subparsers(help='sub-command help')
+    nfs_subparsers = nfs_parser.add_subparsers()
+    smb_subparsers = smb_parser.add_subparsers()
 
-    parser_create = subparsers.add_parser(
-        'create',
-        help='Prepare an export without any access grants'
-    )
-    parser_create.add_argument(
-        'export_name',
-        help='Export point to create'
-    )
+    protocol_subparsers = [(nfs_subparsers, scality_manila_utils.nfs_helper),
+                           (smb_subparsers, scality_manila_utils.smb_helper)]
 
-    parser_grant = subparsers.add_parser(
-        'grant',
-        help='Grant access to an existing filesystem, and reexport it'
-    )
-    parser_grant.add_argument(
-        'export_name',
-        help='Filesystem to grant access to'
-    )
-    parser_grant.add_argument(
-        'host',
-        help='IP address or network to grant access for'
-    )
-    parser_grant.add_argument(
-        'options',
-        help='Export options',
-        nargs='*'
-    )
+    for (subparsers, helper) in protocol_subparsers:
 
-    parser_revoke = subparsers.add_parser(
-        'revoke',
-        help='Revoke access from an existing filesystem, and reexport it'
-    )
-    parser_revoke.add_argument(
-        'export_name',
-        help='Filesystem to revoke access from'
-    )
-    parser_revoke.add_argument(
-        'host',
-        help='IP address or network to revoke access for'
-    )
+        help = description = 'Prepare an export without any access grants'
+        parser_create = subparsers.add_parser(
+            'create', description=description, help=help,
+        )
+        parser_create.add_argument(
+            'export_name', help='Export point to create'
+        )
+        parser_create.set_defaults(func=getattr(helper, 'add_export'))
 
-    parser_check = subparsers.add_parser(
-        'check',
-        help='Check for required binaries and running services'
-    )
+        help = description = 'Check for required binaries and running services'
+        parser_check = subparsers.add_parser(
+            'check', description=description, help=help
+        )
+        parser_check.set_defaults(func=getattr(helper, 'verify_environment'))
 
-    parser_get = subparsers.add_parser(
-        'get',
-        help='List the addresses that a filesystem is exported to'
-    )
-    parser_get.add_argument(
-        'export_name',
-        help='Filesystem to get information about'
-    )
+        help = description = \
+            'List the addresses that a filesystem is exported to'
+        parser_get = subparsers.add_parser(
+            'get', description=description, help=help
+        )
+        parser_get.add_argument(
+            'export_name', help='Filesystem to get information about'
+        )
+        parser_get.set_defaults(func=getattr(helper, 'get_export'))
 
-    parser_wipe = subparsers.add_parser(
-        'wipe',
-        help='Remove an existing export. The export must not have any grants.'
-    )
-    parser_wipe.add_argument(
-        'export_name',
-        help='Filesystem to remove'
-    )
+        help = description = \
+            'Remove an existing export. The export must not have any grants.'
+        parser_wipe = subparsers.add_parser(
+            'wipe', description=description, help=help
+        )
+        parser_wipe.add_argument(
+            'export_name', help='Filesystem to remove'
+        )
+        parser_wipe.set_defaults(func=getattr(helper, 'wipe_export'))
 
-    parser_create.set_defaults(func=scality_manila_utils.helper.add_export)
-    parser_grant.set_defaults(func=scality_manila_utils.helper.grant_access)
-    parser_revoke.set_defaults(func=scality_manila_utils.helper.revoke_access)
-    parser_get.set_defaults(func=scality_manila_utils.helper.get_export)
-    parser_wipe.set_defaults(func=scality_manila_utils.helper.wipe_export)
-    parser_check.set_defaults(
-        func=scality_manila_utils.helper.verify_environment
-    )
+        help = description = 'Grant access to an existing filesystem'
+        if helper == scality_manila_utils.nfs_helper:
+            help += "and reexport it"
+            description += "and reexport it"
 
-    parsed_args = command_parser.parse_args(args)
+        parser_grant = subparsers.add_parser(
+            'grant', description=description, help=help,
+        )
+        parser_grant.add_argument(
+            'export_name', help='Filesystem to grant access to'
+        )
+        parser_grant.add_argument(
+            'host', help='IP address or network to grant access for'
+        )
+        parser_grant.set_defaults(func=getattr(helper, 'grant_access'))
+
+        if helper == scality_manila_utils.nfs_helper:
+            parser_grant.add_argument(
+                'options', help='Export options', nargs='*'
+            )
+
+        help = description = 'Revoke access from an existing filesystem'
+        if helper == scality_manila_utils.nfs_helper:
+            help += "and reexport it"
+            description += "and reexport it"
+
+        parser_revoke = subparsers.add_parser(
+            'revoke', description=description, help=help
+        )
+        parser_revoke.add_argument(
+            'export_name', help='Filesystem to revoke access from'
+        )
+        parser_revoke.add_argument(
+            'host', help='IP address or network to revoke access for'
+        )
+        parser_revoke.set_defaults(func=getattr(helper, 'revoke_access'))
+
+    parsed_args = parser.parse_args(args)
 
     # Set debug level if requested
     if parsed_args.debug:
@@ -218,14 +235,18 @@ def main(args=None):
         "{arg:s}={val!r}".format(arg=arg, val=val)
         for arg, val in command_args.items()
     )
-    log.info("Invoking %s(%s)", parsed_args.func.__name__, formatted_args)
+
+    log.info("Invoking %s.%s(%s)", parsed_args.func.__module__,
+             parsed_args.func.__name__, formatted_args)
     try:
         result = parsed_args.func(**command_args)
         if result is not None:
             print(result)
     except Exception as e:
         log.exception("Invocation failed")
-        traceback.print_exc()
+        # Don't print the full stack trace on stderr, it's ugly and hard to
+        # parse as a human. The stack trace is already logged in syslog.
+        print(e, file=sys.stderr)
         exit_code = getattr(e, 'EXIT_CODE', 1)
         sys.exit(exit_code)
 

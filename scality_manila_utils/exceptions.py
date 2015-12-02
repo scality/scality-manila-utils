@@ -44,3 +44,8 @@ class ClientNotFoundException(ExportException):
 class ExportHasGrantsException(ExportException):
     """Raised when attempting to remove an export with existing clients."""
     EXIT_CODE = 13
+
+
+class ExportAlreadyExists(ExportException):
+    """Raised when an export already exists."""
+    EXIT_CODE = 14

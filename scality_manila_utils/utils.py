@@ -197,3 +197,49 @@ def nfs_mount(export_path):
             os.rmdir(mount_point)
         except OSError as e:
             log.warning("Unable to clean up temporary NFS root: %s", e)
+
+
+def is_stored_on_sofs(path):
+    """
+    Check if the given location is stored on a SOFS filesystem.
+
+    :param path: an absolute path, e.g `/ring/fs/samba_shares`
+    :type path: string
+    :rtype: boolean
+    """
+    with elevated_privileges():
+        try:
+            output = subprocess.check_output(['df', '-P', path])
+        except subprocess.CalledProcessError:
+            log.exception("Unable to get fs type of '{0:s}'".format(path))
+            raise
+
+    # df will output a header, followed by the filesystem capacity usage
+    fsline = output.splitlines()[-1]
+    fstype = fsline.split()[0]
+
+    return fstype == '/dev/fuse'
+
+
+def execute(cmd, error_msg):
+    """
+    Utility function to execute a command
+
+    :param cmd: the command with arguments to execute
+    :type cmd: iterable of `str` or a single `str`
+    :param error_msg: the exception message in case something went wrong.
+        `error_msg` must include the placeholders `{stdout}` and `{stderr}`
+    :type error_msg: `str`
+    :rtype: (`unicode`, `unicode`)
+    """
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+
+    # `subprocess.communicate` returns a byte stream
+    stdout, stderr = process.communicate()
+    stdout, stderr = stdout.decode(), stderr.decode()
+
+    if process.returncode != 0:
+        raise EnvironmentError(error_msg.format(stdout=stdout, stderr=stderr))
+
+    return stdout, stderr
