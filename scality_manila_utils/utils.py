@@ -207,17 +207,18 @@ def is_stored_on_sofs(path):
     :type path: string
     :rtype: boolean
     """
-    with io.open('/proc/mounts') as mounts:
-        for mount in mounts.readlines():
-            # A typical line looks line:
-            # /dev/fuse on /ring/0.XX type fuse (rw,nosuid,nodev,allow_other)
-            parts = mount.split()
-            mnt_type = parts[0]
-            mnt_point = parts[1].rstrip('/')
-            if (mnt_type.endswith('fuse') and
-                    path.rstrip('/').startswith(mnt_point)):
-                        return True
-    return False
+    with elevated_privileges():
+        try:
+            output = subprocess.check_output(['df', '-P', path])
+        except subprocess.CalledProcessError:
+            log.exception("Unable to get fs type of '{0:s}'".format(path))
+            raise
+
+    # df will output a header, followed by the filesystem capacity usage
+    fsline = output.splitlines()[-1]
+    fstype = fsline.split()[0]
+
+    return fstype == '/dev/fuse'
 
 
 def execute(cmd, error_msg):

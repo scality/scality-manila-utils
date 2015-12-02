@@ -18,6 +18,7 @@ import io
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import unittest2 as unittest
 
@@ -176,18 +177,35 @@ class TestUtils(unittest.TestCase):
                     fsync.assert_called_once_with(fd)
                     osclose.assert_called_once_with(fd)
 
+    @mock.patch('os.seteuid', mock.Mock())
+    @mock.patch('os.setegid', mock.Mock())
     def test_is_stored_on_sofs(self):
-        self.assertFalse(utils.is_stored_on_sofs('fake'))
+        header = (
+            'Filesystem     1024-blocks    Used Available Capacity Mounted on'
+        )
+        fuse_line = '/dev/fuse          4088408       0   4088408       0% /r'
+        bad_line = '/dev/sda1         20608636 1119716  18619320       6% /'
 
-        proc_mount = '/dev/fuse /ring/fs \n'
-        mock_open = mock.mock_open(read_data=proc_mount)
-        with mock.patch('io.open', mock_open) as mock_open:
-            self.assertTrue(utils.is_stored_on_sofs('/ring/fs'))
-            self.assertTrue(utils.is_stored_on_sofs('/ring/fs/'))
-            self.assertTrue(utils.is_stored_on_sofs('/ring/fs/dir'))
+        on_sofs = header + '\n' + fuse_line
+        with mock.patch('subprocess.check_output', return_value=on_sofs,
+                        autospec=True) as df:
+            path = '/r/some/share'
+            self.assertTrue(utils.is_stored_on_sofs(path))
+            df.assert_called_once_with(['df', '-P', path])
 
-        expected_calls = [mock.call('/proc/mounts')] * 3
-        self.assertEqual(expected_calls, mock_open.call_args_list)
+        no_sofs = header + '\n' + bad_line
+        with mock.patch('subprocess.check_output', return_value=no_sofs,
+                        autospec=True) as df:
+            path = '/var/log'
+            self.assertFalse(utils.is_stored_on_sofs(path))
+            df.assert_called_once_with(['df', '-P', path])
+
+        side_effect = subprocess.CalledProcessError(None, None, None)
+        with mock.patch('subprocess.check_output',
+                        autospec=True, side_effect=side_effect) as df:
+            self.assertRaises(subprocess.CalledProcessError,
+                              utils.is_stored_on_sofs, path)
+            df.assert_called_once_with(['df', '-P', path])
 
     @mock.patch('subprocess.Popen', autospec=True, spec_set=True)
     def test_execute_when_cmd_failed(self, mock_popen):
