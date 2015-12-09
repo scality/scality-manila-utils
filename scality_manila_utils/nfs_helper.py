@@ -141,6 +141,8 @@ def add_export(root_export, export_name, *args, **kwargs):
             # Create export directory if it does not already exist
             if not os.path.exists(export_point):
                 os.mkdir(export_point)
+                # On some systems, the `mode` argument of mkdir is ignored.
+                # So be safe, and do an explicit chmod.
                 os.chmod(export_point, 0o0777)
 
 

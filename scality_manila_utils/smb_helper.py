@@ -190,7 +190,10 @@ def add_export(root_export, export_name, *args, **kwargs):
 
     with utils.elevated_privileges():
         try:
-            os.mkdir(export_point, 0o0777)
+            os.mkdir(export_point)
+            # On some systems, the `mode` argument of mkdir is ignored.
+            # So be safe, and do an explicit chmod.
+            os.chmod(export_point, 0o0777)
         except OSError as exc:
             if exc.errno != errno.EEXIST:
                 raise

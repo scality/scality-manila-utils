@@ -188,13 +188,15 @@ class TestSMBHelperWithMockedVerifyEnv(BaseTestSMBHelper):
                           export_name='sla/sh', root_export=self.root_export)
 
     @mock.patch('os.mkdir')
+    @mock.patch('os.chmod')
     @mock.patch('subprocess.check_call')
-    def test_add_export(self, mock_check_call, mock_mkdir):
+    def test_add_export(self, mock_check_call, mock_chmod, mock_mkdir):
         smb_helper.add_export(export_name='test', root_export=self.root_export)
 
         export_point = os.path.join(self.root_export, 'test')
 
-        mock_mkdir.assert_called_once_with(export_point, 0o0777)
+        mock_mkdir.assert_called_once_with(export_point)
+        mock_chmod.assert_called_once_with(export_point, 0o0777)
         self.assertEqual(6, mock_check_call.call_count)
         self.elevated_privileges_mock.assert_called_once_with()
         self.mock_verify_environment.assert_called_once_with(self.root_export)
